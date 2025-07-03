@@ -152,7 +152,7 @@ class GHGConfigHandler:
                 raise ValueError(f"Scenario {scen} must contain 'control' and 'pathway'")
 
             ALLOWED = ["price", "reduction", "budget", None]
-        
+
             if not scen["control"] in ALLOWED:
                 err = f"Control must be {','.join([str(x) for x in ALLOWED])} but was {name}:{scen.get('control', "missing")}"
                 raise ValueError(err)
@@ -316,7 +316,7 @@ class PathManager:
             os.PathLike: the dirname
         """
 
-        default = "resources/data/costs"
+        default = "resources/data/costs/default"
         if self.config["run"].get("is_remind_coupled", False) and not ignore_remind:
             default = self.derived_data_dir() + "/remind/costs"
 
@@ -436,7 +436,8 @@ def setup_gurobi_tunnel_and_env(
     # Set up Gurobi environment variables
     os.environ["GUROBI_HOME"] = "/p/projects/rd3mod/gurobi1103/linux64"
     os.environ["PATH"] += f":{os.environ['GUROBI_HOME']}/bin"
-    os.environ["LD_LIBRARY_PATH"] += f":{os.environ['GUROBI_HOME']}/lib"
+    if "LD_LIBRARY_PATH" in os.environ:
+        os.environ["LD_LIBRARY_PATH"] += f":{os.environ['GUROBI_HOME']}/lib"
     os.environ["GRB_LICENSE_FILE"] = "/p/projects/rd3mod/gurobi_rc/gurobi.lic"
     os.environ["GRB_CURLVERBOSE"] = "1"
     os.environ["GRB_SERVER_TIMEOUT"] = "10"
