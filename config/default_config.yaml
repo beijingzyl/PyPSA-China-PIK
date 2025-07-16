@@ -4,7 +4,7 @@
 # DO NOT FORGET TO LOOK AT THE TECHNOLOGY CONFIGURATION FILES
 
 run:
-  name: unamed_run
+  name: unamed_run_coupled
 foresight: "overnight"
 
 paths:
