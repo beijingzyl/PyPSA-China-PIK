@@ -87,8 +87,47 @@ def plot_energy_balance(
 
     # fix names and order
 
-    charge.rename(columns={"Battery Storage": "Battery"}, inplace=True)
-    supply.rename(columns={"Battery Discharger": "Battery"}, inplace=True)
+    # 添加调试信息
+    logger.info(f"charge columns before rename: {list(charge.columns)}")
+    logger.info(f"supply columns before rename: {list(supply.columns)}")
+    
+    # 检查并处理重复的列名
+    if charge.columns.duplicated().any():
+        logger.warning(f"Duplicate columns in charge: {charge.columns[charge.columns.duplicated()]}")
+        charge = charge.loc[:, ~charge.columns.duplicated()]
+    
+    if supply.columns.duplicated().any():
+        logger.warning(f"Duplicate columns in supply: {supply.columns[supply.columns.duplicated()]}")
+        supply = supply.loc[:, ~supply.columns.duplicated()]
+
+    # 检查是否有Battery Storage和Battery Discharger同时存在
+    if "Battery Storage" in charge.columns and "Battery Discharger" in charge.columns:
+        # 合并两个列
+        charge["Battery"] = charge["Battery Storage"] + charge["Battery Discharger"]
+        charge.drop(columns=["Battery Storage", "Battery Discharger"], inplace=True)
+    elif "Battery Storage" in charge.columns:
+        charge.rename(columns={"Battery Storage": "Battery"}, inplace=True)
+    elif "Battery Discharger" in charge.columns:
+        charge.rename(columns={"Battery Discharger": "Battery"}, inplace=True)
+    
+    if "Battery Storage" in supply.columns and "Battery Discharger" in supply.columns:
+        # 合并两个列
+        supply["Battery"] = supply["Battery Storage"] + supply["Battery Discharger"]
+        supply.drop(columns=["Battery Storage", "Battery Discharger"], inplace=True)
+    elif "Battery Storage" in supply.columns:
+        supply.rename(columns={"Battery Storage": "Battery"}, inplace=True)
+    elif "Battery Discharger" in supply.columns:
+        supply.rename(columns={"Battery Discharger": "Battery"}, inplace=True)
+    
+    # 再次检查重复
+    if charge.columns.duplicated().any():
+        logger.warning(f"Duplicate columns in charge after rename: {charge.columns[charge.columns.duplicated()]}")
+        charge = charge.loc[:, ~charge.columns.duplicated()]
+    
+    if supply.columns.duplicated().any():
+        logger.warning(f"Duplicate columns in supply after rename: {supply.columns[supply.columns.duplicated()]}")
+        supply = supply.loc[:, ~supply.columns.duplicated()]
+    
     color_series = color_series[charge.columns.union(supply.columns)]
     color_series.rename(
         {"Battery Discharger": "Battery", "Battery Storage": "Battery"},
@@ -96,6 +135,13 @@ def plot_energy_balance(
     )
     # Deduplicate color_series
     color_series = color_series[~color_series.index.duplicated(keep="first")]
+    
+    # 确保charge和supply的列名与color_series同步
+    charge = charge.rename(columns={"Battery Discharger": "Battery"})
+    supply = supply.rename(columns={"Battery Storage": "Battery"})
+    
+    logger.info(f"charge columns after all processing: {list(charge.columns)}")
+    logger.info(f"supply columns after all processing: {list(supply.columns)}")
 
     preferred_order = plot_config["preferred_order"]
     plot_order = (
