@@ -16,6 +16,7 @@ from scripts._helpers import PathManager, get_cutout_params, ConfigManager
 configfile: "config/default_config.yaml"
 configfile: "config/technology_config.yaml"
 configfile: "config/plot_config.yaml"
+# configfile: "config/remind.yaml"
 
 # for dev of remind with mocksnakemake, activate this
 # configfile: "resources/tmp/remind_coupled_cg.yaml"
@@ -228,6 +229,46 @@ rule build_load_profiles:
     resources: mem_mb = ATLITE_NPROCESSES * 5000
     script: "scripts/build_load_profiles.py"
 
+if config["run"].get("integrate_transport_load", False):
+    rule integrate_transport_load:
+        input:
+            elec_load = DERIVED_DATA + "/load/regio_hrly_ac_load_{planning_horizons}.h5",
+            ev_load = DERIVED_DATA + "/load/ev_hourly_load_{planning_horizons}.h5"
+        output:
+            integrated_load = DERIVED_DATA + "/load/integrated_load_{planning_horizons}.h5"
+        log: LOG_DIR + "/integrate_transport_load/integrate_{planning_horizons}.log"
+        threads: 1
+        resources: mem_mb = 2000
+        script: "scripts/integrate_transport_load.py"
+
+if config["run"].get("integrate_transport_load", False):
+    rule generate_ev_hourly_load:
+        """
+        Generate hourly EV load profiles using load_disaggregation_system
+        """
+        params:
+            target_year=lambda wildcards: int(wildcards.planning_horizons),
+        input:
+            ev_annual_load=DERIVED_DATA + "/remind/ac_load_disagg_ev.csv",
+            transport_profiles="results/output/normalized_profiles.csv",
+            ev_types_file="resources/data/load/EVtypes.xlsx",
+        output:
+            ev_hourly_load=DERIVED_DATA + "/load/ev_hourly_load_{planning_horizons}.h5",
+        log: LOG_DIR + "/ev_hourly_load/ev_hourly_{planning_horizons}.log",
+        script: "scripts/run_integrated_transport_disaggregation.py"
+        
+    rule integrate_transport_load:
+        input:
+            elec_load = DERIVED_DATA + "/load/regio_hrly_ac_load_{planning_horizons}.h5",
+            ev_hourly_load = DERIVED_DATA + "/load/ev_hourly_load_{planning_horizons}.h5"
+        output:
+            integrated_load = DERIVED_DATA + "/load/integrated_load_{planning_horizons}.h5"
+        log: LOG_DIR + "/integrate_transport_load/integrate_{planning_horizons}.log"
+        threads: 1
+        resources: mem_mb = 2000
+        script: "scripts/integrate_transport_load.py"
+# 当integrate_transport_load为false时，跳过integrate_transport_load步骤，直接使用regio_hrly_ac_load
+
 rule build_biomass_potential:
     input:
         # from doi.org/10.1038/s41467-021-23282-x
@@ -269,7 +310,9 @@ if config["foresight"] in ["overnight"]:
             central_fraction="resources/data/heating/DH_city_town_2020.h5",
             solar_thermal_name=DERIVED_CUTOUT+f"/heating/solar_thermal-{config['solar_thermal_angle']}.h5",
             cop_name=DERIVED_CUTOUT+"/heating/hp_cop.h5",
-            elec_load=DERIVED_DATA + "/load/regio_hrly_ac_load_{planning_horizons}.h5",
+            elec_load=lambda wildcards: (DERIVED_DATA + "/load/integrated_load_{planning_horizons}.h5" 
+                                       if config["run"].get("integrate_transport_load", False) 
+                                       else DERIVED_DATA + "/load/regio_hrly_ac_load_{planning_horizons}.h5"),
             intraday_profiles="resources/data/heating/heat_load_profile_DK_AdamJensen.csv",
             tech_costs = COSTS_DATA + "/costs_{planning_horizons}.csv",
             province_shape=DERIVED_COMMON+"/province_shapes/CHN_adm1.shp",
@@ -280,6 +323,13 @@ if config["foresight"] in ["overnight"]:
         threads: 1
         resources: mem_mb=10000
         script: "scripts/prepare_network.py"
+
+    # 确保交通负荷集成在准备网络之前运行
+    if config["run"].get("integrate_transport_load", False):
+        ruleorder: integrate_transport_load > prepare_networks
+        ruleorder: generate_ev_hourly_load > integrate_transport_load
+        ruleorder: disaggregate_remind_data > generate_ev_hourly_load
+
 
     paidoff_caps = DERIVED_DATA + "/remind/harmonized_capacities/paid_off_capacities.csv"
     if not config["run"].get("is_remind_coupled", False):
@@ -323,7 +373,7 @@ elif config["foresight"] == "myopic":
             central_fraction="resources/data/heating/DH_city_town_2020.h5",
             solar_thermal_name=DERIVED_CUTOUT+f"/heating/solar_thermal-{config['solar_thermal_angle']}.h5",
             cop_name=DERIVED_CUTOUT+"/heating/hp_cop.h5",
-            elec_load=DERIVED_DATA + "/load/regio_hrly_ac_load_{planning_horizons}.h5",
+            elec_load=DERIVED_DATA + "/load/integrated_load_{planning_horizons}.h5",
             # TODO: metadata for file, why does it need to be h5?
             tech_costs= COSTS_DATA + "/costs_{planning_horizons}.csv",
             province_shape=DERIVED_COMMON +"/province_shapes/CHN_adm1.shp",
@@ -346,7 +396,7 @@ elif config["foresight"] == "myopic":
             central_fraction="resources/data/heating/DH_city_town_2020.h5",
             heat_demand_profile= DERIVED_DATA + f"/heating-cutout_{CUTOUT_NAME}/"+"heat_demand_profile_{planning_horizons}.h5",
             solar_thermal_name=DERIVED_CUTOUT + f"/heating/solar_thermal-{config['solar_thermal_angle']}.h5",
-            elec_load=DERIVED_DATA + "/load/regio_hrly_ac_load_{planning_horizons}.h5",
+            elec_load=DERIVED_DATA + "/load/integrated_load_{planning_horizons}.h5",
             tech_costs= COSTS_DATA + "/costs_{planning_horizons}.csv",
             province_shape=DERIVED_COMMON+"/province_shapes/CHN_adm1.shp",
             **{f"profile_{tech}": DERIVED_CUTOUT +f"/profile_{tech}-{rsc_params[tech]}.nc" 
@@ -357,6 +407,9 @@ elif config["foresight"] == "myopic":
         threads: 1
         resources: mem_mb=10000
         script: "scripts/prepare_base_network.py"
+
+    # 确保交通负荷集成在准备网络之前运行
+    ruleorder: integrate_transport_load > prepare_base_networks
 
     ruleorder: prepare_base_networks_2020 > prepare_base_networks
 

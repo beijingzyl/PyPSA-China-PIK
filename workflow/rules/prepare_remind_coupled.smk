@@ -64,8 +64,9 @@ rule disaggregate_remind_data:
     params:
         etl_cfg=config.get("remind_etl"),
         region=REMIND_REGION,  # overlaps with cofnig
-        reference_load_year=2025,
+        reference_load_year=lambda wildcards: config["scenario"]["planning_horizons"][0],
         expand_dirs=config["scenario"]["planning_horizons"],
+        integrate_transport_load=config["run"].get("integrate_transport_load", False),
     input:
         **{
             f"pypsa_powerplants_{yr}": DERIVED_DATA
@@ -77,6 +78,9 @@ rule disaggregate_remind_data:
         loads=DERIVED_DATA + "/remind/yrly_loads.csv",
         # todo switch to default?
         reference_load="resources/data/load/Provincial_Load_2020_2060_MWh.csv",
+        # 新增：REMIND交通数据和EV类型文件（仅在集成交通负荷时使用）
+        remind_transport_data="/p/tmp/ivanra/REMIND/output/SSP2-PkBudg1000-NoExprt_2025-06-11_14.54.13/EDGE-T/Transport.mif",
+        ev_types_file="resources/data/load/EVtypes.xlsx",
     output:
         **{
             f"caps_{yr}": DERIVED_DATA
@@ -85,9 +89,13 @@ rule disaggregate_remind_data:
         },
         paid_off=DERIVED_DATA + "/remind/harmonized_capacities/paid_off_capacities.csv",
         disagg_load=DERIVED_DATA + "/remind/ac_load_disagg.csv",
+        disagg_ev_load=DERIVED_DATA + "/remind/ac_load_disagg_ev.csv",
     log:
         LOG_DIR + "/remind_coupling/disaggregate_data.log",
     conda:
         "remind-coupling"
     script:
         "../scripts/remind_coupling/disaggregate_data.py"
+
+
+
