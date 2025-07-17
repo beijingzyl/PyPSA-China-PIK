@@ -229,9 +229,9 @@ def plot_pathway_capacities(
             )
             cap_h2 = cap_h2.groupby("carrier").sum()[year]
             if caps_h2.empty:
-                caps_h2 = cap_h2
+                caps_h2 = cap_h2.to_frame().rename(columns={year: year})
             else:
-                caps_h2 = pd.concat([caps_h2, cap_h2], axis=1).fillna(0)
+                caps_h2 = pd.concat([caps_h2, cap_h2.to_frame().rename(columns={year: year})], axis=1).fillna(0)
         if plot_heat:
             # TODO issue for CHP in case of several end buses. Bus2 will not be caught
             cap_heat = cap_df.reset_index().query(
@@ -239,9 +239,9 @@ def plot_pathway_capacities(
             )
             cap_heat = cap_heat.groupby("carrier").sum()[year]
             if caps_heat.empty:
-                caps_heat = cap_heat
+                caps_heat = cap_heat.to_frame().rename(columns={year: year})
             else:
-                caps_heat = pd.concat([caps_heat, cap_h2], axis=1).fillna(0)
+                caps_heat = pd.concat([caps_heat, cap_heat.to_frame().rename(columns={year: year})], axis=1).fillna(0)
 
         caps_stores = pd.concat([stores, caps_stores], axis=1).fillna(0)
         if caps_ac.empty:
@@ -257,6 +257,16 @@ def plot_pathway_capacities(
             continue
         k, j = divmod(i, 2)
         ax = axes[k, j]
+        
+        # 添加调试信息
+        logger.info(f"Processing capacity_df type: {type(capacity_df)}")
+        logger.info(f"capacity_df shape: {capacity_df.shape if hasattr(capacity_df, 'shape') else 'No shape'}")
+        
+        # 确保capacity_df是DataFrame
+        if isinstance(capacity_df, pd.Series):
+            capacity_df = capacity_df.to_frame()
+            logger.info(f"Converted Series to DataFrame")
+        
         preferred_order = pd.Index(config["preferred_order"])
         new_index = preferred_order.intersection(capacity_df.index).append(
             capacity_df.index.difference(preferred_order)
