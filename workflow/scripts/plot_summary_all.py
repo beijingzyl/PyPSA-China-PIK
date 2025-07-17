@@ -195,7 +195,8 @@ def plot_pathway_capacities(
         year = cap_df.columns.get_level_values(0)[0]
         cap_df = cap_df.droplevel(0, axis=1).rename(columns={"Unnamed: 4_level_1": year})
         cap_df /= PLOT_CAP_UNITS
-        cap_df.drop("Load Shedding", level="carrier", inplace=True)
+        if "Load Shedding" in cap_df.index.get_level_values("carrier"):
+            cap_df.drop("Load Shedding", level="carrier", inplace=True)
 
         # get stores relevant for reporting according to config, use later
         stores = (

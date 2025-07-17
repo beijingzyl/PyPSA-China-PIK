@@ -80,14 +80,12 @@ class TransportLoadIntegrator:
         """
         logger.info(f"加载交通负荷数据: {transport_file}")
         
+        # 如果文件路径为空或不存在，返回空的DataFrame
+        if not transport_file or transport_file.strip() == "":
+            logger.info("交通负荷文件路径为空，跳过交通负荷加载")
+            return pd.DataFrame()
+        
         try:
-            # 检查文件是否存在
-            if not Path(transport_file).exists():
-                logger.warning(f"交通负荷文件不存在: {transport_file}")
-                logger.info("将创建空的交通负荷数据")
-                # 创建空的交通负荷数据
-                return pd.DataFrame()
-            
             transport_data = pd.read_csv(transport_file, index_col=0, parse_dates=True)
             logger.info(f"交通负荷数据形状: {transport_data.shape}")
             logger.info(f"交通负荷数据列: {list(transport_data.columns)}")
@@ -95,7 +93,7 @@ class TransportLoadIntegrator:
             return transport_data
         except Exception as e:
             logger.error(f"加载交通负荷数据失败: {e}")
-            raise
+            return pd.DataFrame()
     
     def match_provinces(self, existing_load: pd.DataFrame, transport_load: pd.DataFrame) -> Tuple[List[str], List[str], List[str]]:
         """
@@ -236,7 +234,7 @@ class TransportLoadIntegrator:
             raise
     
     def run_integration(self, existing_load_file: str, transport_load_file: str, 
-                       output_file: str, ev_load_file: str = None) -> pd.DataFrame:
+                       output_file: str, ev_load_file: str) -> pd.DataFrame:
         """
         运行负荷集成流程
         
@@ -251,11 +249,10 @@ class TransportLoadIntegrator:
         """
         logger.info("=== 开始交通负荷集成流程 ===")
         
-        # 1. 加载数据
+        # 加载现有负荷数据
         existing_load = self.load_existing_load_data(existing_load_file)
-        transport_load = self.load_transport_load_data(transport_load_file)
         
-        # 加载EV负荷数据（如果提供）
+        # 加载EV负荷数据
         ev_load = None
         if ev_load_file and Path(ev_load_file).exists():
             logger.info(f"加载EV负荷数据: {ev_load_file}")
@@ -266,6 +263,11 @@ class TransportLoadIntegrator:
             except Exception as e:
                 logger.warning(f"加载EV负荷数据失败: {e}")
                 ev_load = None
+        
+        # 只有当交通负荷文件存在且不为空时才加载
+        transport_load = pd.DataFrame()
+        if transport_load_file and transport_load_file.strip():
+            transport_load = self.load_transport_load_data(transport_load_file)
         
         # 检查是否有任何负荷数据需要集成
         has_transport = not transport_load.empty
@@ -333,30 +335,19 @@ class TransportLoadIntegrator:
 
 def main():
     """主函数"""
-    try:
-        # 在Snakemake环境中，snakemake变量应该已经存在
-        configure_logging(snakemake)
-        logger.info("在Snakemake环境中运行")
-        logger.info(f"输入文件: {snakemake.input}")
-        logger.info(f"输出文件: {snakemake.output}")
-        logger.info(f"配置: {snakemake.config}")
-    except NameError:
-        # 如果snakemake不存在，使用mock
-        snakemake = mock_snakemake(
-            "integrate_transport_load",
-            planning_horizons="2060",
-            co2_pathway="SSP2-PkBudg1000-CHA-pypsaelh2",  # 修正为正确的co2_pathway
-            topology="current+FCG",
-        )
-        configure_logging(snakemake)
-        logger.info("使用mock配置运行")
+    # 直接使用 snakemake 变量（在 Snakemake 环境中会自动存在）
+    configure_logging(snakemake)
+    logger.info("在Snakemake环境中运行")
+    logger.info(f"输入文件: {snakemake.input}")
+    logger.info(f"输出文件: {snakemake.output}")
+    logger.info(f"配置: {snakemake.config}")
     
     # 获取配置
     config = snakemake.config
     planning_year = int(snakemake.wildcards.planning_horizons)
     
     # 检查是否需要集成交通负荷
-    integrate_transport_load = snakemake.params.get("integrate_transport_load", False)
+    integrate_transport_load = snakemake.config["run"].get("integrate_transport_load", False)
     logger.info(f"集成交通负荷设置: {integrate_transport_load}")
     
     # 获取输入和输出文件路径
@@ -382,33 +373,15 @@ def main():
         'provinces': PROV_NAMES
     })
     
-    # 检查是否有交通负荷文件输入
-    if hasattr(snakemake.input, 'transport_load'):
-        transport_load_file = snakemake.input.transport_load
-        logger.info(f"交通负荷文件: {transport_load_file}")
-    else:
-        transport_load_file = "workflow/output/transport_hourly_load_summary.csv"
-        logger.info(f"使用默认交通负荷文件: {transport_load_file}")
-    
     # 检查是否有EV负荷文件输入
     ev_load_file = None
-    if hasattr(snakemake.input, 'ev_load'):
-        ev_load_file = snakemake.input.ev_load
+    if hasattr(snakemake.input, 'ev_hourly_load'):
+        ev_load_file = snakemake.input.ev_hourly_load
         logger.info(f"EV负荷文件: {ev_load_file}")
-        # 检查文件是否存在
-        if not Path(ev_load_file).exists():
-            logger.warning(f"EV负荷文件不存在: {ev_load_file}")
-            ev_load_file = None
-    else:
-        # 尝试从默认路径加载EV负荷
-        default_ev_file = f"workflow/derived_data/load/ev_hourly_load_{planning_year}.h5"
-        if Path(default_ev_file).exists():
-            ev_load_file = default_ev_file
-            logger.info(f"使用默认EV负荷文件: {ev_load_file}")
     
     # 运行集成流程
     integrated_load = integrator.run_integration(
-        existing_load_file, transport_load_file, output_file, ev_load_file
+        existing_load_file, "", output_file, ev_load_file  # 交通负荷文件传空字符串
     )
     
     logger.info(f"负荷集成完成，输出文件: {output_file}")

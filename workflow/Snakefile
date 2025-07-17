@@ -230,18 +230,6 @@ rule build_load_profiles:
     script: "scripts/build_load_profiles.py"
 
 if config["run"].get("integrate_transport_load", False):
-    rule integrate_transport_load:
-        input:
-            elec_load = DERIVED_DATA + "/load/regio_hrly_ac_load_{planning_horizons}.h5",
-            ev_load = DERIVED_DATA + "/load/ev_hourly_load_{planning_horizons}.h5"
-        output:
-            integrated_load = DERIVED_DATA + "/load/integrated_load_{planning_horizons}.h5"
-        log: LOG_DIR + "/integrate_transport_load/integrate_{planning_horizons}.log"
-        threads: 1
-        resources: mem_mb = 2000
-        script: "scripts/integrate_transport_load.py"
-
-if config["run"].get("integrate_transport_load", False):
     rule generate_ev_hourly_load:
         """
         Generate hourly EV load profiles using load_disaggregation_system
@@ -324,7 +312,6 @@ if config["foresight"] in ["overnight"]:
         resources: mem_mb=10000
         script: "scripts/prepare_network.py"
 
-    # 确保交通负荷集成在准备网络之前运行
     if config["run"].get("integrate_transport_load", False):
         ruleorder: integrate_transport_load > prepare_networks
         ruleorder: generate_ev_hourly_load > integrate_transport_load
