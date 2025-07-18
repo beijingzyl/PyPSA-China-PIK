@@ -54,9 +54,9 @@ snapshots:
   start: "01-01 00:00"
   end: "12-31 23:00"
   bounds: 'both'
-  freq: '5h'
+  freq: '1h'
   # test weighings -> to be improved
-  frequency: 5.
+  frequency: 1.
   # in case snapshots cross the planning horizon year
   end_year_plus1: false
 

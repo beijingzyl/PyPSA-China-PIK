@@ -312,30 +312,55 @@ def project_elec_demand(
     yearly_projections_MWh: pd.DataFrame,
     year=2020,
 ) -> pd.DataFrame:
-    """project the hourly demand to the future years
-
-    Args:
-        hourly_demand_base_yr_MWh (pd.DataFrame): the hourly demand in the base year
-        yearly_projections_MWh (pd.DataFrame): the yearly projections
-
-    Returns:
-        pd.DataFrame: the projected hourly demand
-    """
-    hourly_load_profile = hourly_demand_base_yr_MWh.loc[:, PROV_NAMES]
+    # 统一年份类型为字符串
+    year = str(year)
+    if yearly_projections_MWh.index.name == "province":
+        yearly_projections_MWh.columns = yearly_projections_MWh.columns.astype(str)
+    else:
+        yearly_projections_MWh.index = yearly_projections_MWh.index.astype(str)
     # normalise the hourly load
+    hourly_load_profile = hourly_demand_base_yr_MWh.loc[:, PROV_NAMES]
     hourly_load_profile /= hourly_load_profile.sum(axis=0)
 
-    yearly_projections_MWh = yearly_projections_MWh.T.loc[int(year), PROV_NAMES]
+    # 添加调试信息
+    logger.info(f"yearly_projections_MWh 形状: {yearly_projections_MWh.shape}")
+    logger.info(f"yearly_projections_MWh 索引: {list(yearly_projections_MWh.index)}")
+    logger.info(f"yearly_projections_MWh 列: {list(yearly_projections_MWh.columns)}")
+    logger.info(f"yearly_projections_MWh 列类型: {[type(c) for c in yearly_projections_MWh.columns]}")
+    logger.info(f"目标年份: {year}")
+    logger.info(f"目标年份类型: {type(year)}")
+
+    if yearly_projections_MWh.index.name == "province":
+        # 原始格式：省份作为索引，年份作为列
+        logger.info("使用原始格式：省份作为索引，年份作为列")
+        available_years = [str(y).strip() for y in yearly_projections_MWh.columns]
+        target_year = str(year).strip()
+        logger.info(f"target_year repr: {repr(target_year)}")
+        logger.info(f"available_years repr: {[repr(y) for y in available_years]}")
+        if target_year not in available_years:
+            raise ValueError(f"无法找到合适的年份，目标年份 {target_year} 不在可用年份中: {available_years}")
+        yearly_projections_MWh = yearly_projections_MWh.T.loc[target_year, PROV_NAMES]
+
+    else:
+        # 转置格式：年份作为索引，省份作为列
+        logger.info("使用转置格式：年份作为索引，省份作为列")
+        available_years = [str(y).strip() for y in yearly_projections_MWh.index]
+        target_year = str(year).strip()
+        logger.info(f"target_year repr: {repr(target_year)}")
+        logger.info(f"available_years repr: {[repr(y) for y in available_years]}")
+        if target_year not in available_years:
+            raise ValueError(f"无法找到合适的年份，目标年份 {target_year} 不在可用年份中: {available_years}")
+        yearly_projections_MWh = yearly_projections_MWh.loc[target_year, PROV_NAMES]
+    
     hourly_load_projected = yearly_projections_MWh.multiply(hourly_load_profile)
 
     if len(hourly_load_projected) == 8784:
-        # rm feb 29th
         hourly_load_projected.drop(hourly_load_projected.index[1416:1440], inplace=True)
     elif len(hourly_load_projected) != 8760:
         raise ValueError("The length of the hourly load is not 8760 or 8784 (leap year, dropped)")
 
     snapshots = make_periodic_snapshots(
-        year=year,
+        year=int(target_year),  # 这里用 int
         freq="1h",
         start_day_hour="01-01 00:00:00",
         end_day_hour="12-31 23:00",
@@ -379,11 +404,83 @@ if __name__ == "__main__":
         snakemake.input.hrly_regional_ac_load, snakemake.input.province_codes
     )
 
-    yearly_projs = read_yearly_load_projections(snakemake.input.elec_load_projs, conversion)
-    projected_demand = project_elec_demand(hrly_MWh_load, yearly_projs, planning_horizons)
-
-    with pd.HDFStore(snakemake.output.elec_load_hrly, mode="w", complevel=4) as store:
-        store["load"] = projected_demand
+    # 检查是否需要集成交通负荷
+    integrate_transport_load = config["run"].get("integrate_transport_load", False)
+    logger.info(f"集成交通负荷设置: {integrate_transport_load}")
+    
+    if integrate_transport_load:
+        # 如果集成交通负荷，使用非EV负荷
+        logger.info("使用非EV负荷进行小时级分解")
+        try:
+            non_ev_annual_load = pd.read_csv(snakemake.input.non_ev_annual_load, index_col=0)
+            logger.info(f"非EV年度负荷数据形状: {non_ev_annual_load.shape}")
+            logger.info(f"非EV年度负荷数据列: {list(non_ev_annual_load.columns)}")
+            logger.info(f"非EV年度负荷数据索引: {list(non_ev_annual_load.index)}")
+            
+            # 检查是否有目标年份的数据
+            # 统一 available_years 和 target_year 类型为字符串
+            available_years = [str(y) for y in non_ev_annual_load.columns]
+            target_year = str(planning_horizons)
+            if target_year not in available_years:
+                logger.error(f"非EV年度负荷数据中没有 {target_year} 年的数据")
+                logger.error(f"可用年份: {available_years}")
+                raise ValueError(f"缺少 {target_year} 年的数据")
+            
+            # 转换数据格式：将省份作为索引，年份作为列
+            non_ev_annual_load_transposed = non_ev_annual_load.T
+            logger.info(f"转置后数据形状: {non_ev_annual_load_transposed.shape}")
+            logger.info(f"转置后数据索引: {list(non_ev_annual_load_transposed.index)}")
+            logger.info(f"转置后数据列: {list(non_ev_annual_load_transposed.columns)}")
+            
+            # 检查PROV_NAMES是否匹配
+            logger.info(f"PROV_NAMES: {PROV_NAMES}")
+            missing_provinces = set(PROV_NAMES) - set(non_ev_annual_load_transposed.columns)
+            extra_provinces = set(non_ev_annual_load_transposed.columns) - set(PROV_NAMES)
+            logger.info(f"缺失的省份: {missing_provinces}")
+            logger.info(f"多余的省份: {extra_provinces}")
+            
+            # 确保数据包含所有需要的省份
+            if missing_provinces:
+                logger.warning(f"添加缺失的省份，设置为0")
+                for province in missing_provinces:
+                    non_ev_annual_load_transposed[province] = 0
+            
+            # 只保留需要的省份
+            non_ev_annual_load_transposed = non_ev_annual_load_transposed[PROV_NAMES]
+            
+            # 生成非EV负荷
+            non_ev_projected_demand = project_elec_demand(hrly_MWh_load, non_ev_annual_load_transposed, planning_horizons)
+            
+            # 保存为非EV负荷文件
+            with pd.HDFStore(snakemake.output.non_ev_load_hrly, mode="w", complevel=4) as store:
+                store["load"] = non_ev_projected_demand
+            logger.info("成功生成非EV小时级负荷")
+            
+            # 同时生成总负荷文件（使用非EV负荷作为总负荷，因为EV负荷将在后续步骤中单独生成并集成）
+            with pd.HDFStore(snakemake.output.elec_load_hrly, mode="w", complevel=4) as store:
+                store["load"] = non_ev_projected_demand
+            logger.info("成功生成总负荷小时级负荷（非EV负荷）")
+            
+        except Exception as e:
+            logger.error(f"生成非EV负荷失败: {e}")
+            import traceback
+            logger.error(f"详细错误信息: {traceback.format_exc()}")
+            raise
+    else:
+        # 如果不集成交通负荷，使用原来的总负荷预测
+        logger.info("使用总负荷预测进行小时级分解")
+        yearly_projs = read_yearly_load_projections(snakemake.input.elec_load_projs, conversion)
+        projected_demand = project_elec_demand(hrly_MWh_load, yearly_projs, planning_horizons)
+        
+        # 保存为总负荷文件
+        with pd.HDFStore(snakemake.output.elec_load_hrly, mode="w", complevel=4) as store:
+            store["load"] = projected_demand
+        logger.info("成功生成总负荷小时级负荷")
+        
+        # 同时生成非EV负荷文件（与总负荷相同）
+        with pd.HDFStore(snakemake.output.non_ev_load_hrly, mode="w", complevel=4) as store:
+            store["load"] = projected_demand
+        logger.info("成功生成非EV小时级负荷（与总负荷相同）")
 
     if config.get("heat_coupling", False):
         atlite_hour_shift = calc_atlite_heating_timeshift(date_range, use_last_ts=False)

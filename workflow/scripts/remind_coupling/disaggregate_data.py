@@ -35,7 +35,7 @@ logger = logging.getLogger(__name__)
 
 # 添加 EV 年度用电量提取函数
 def extract_ev_annual_energy(remind_file: str, ev_types_file: str, target_year: int) -> float:
-    """从REMIND数据中提取年度EV用电量，优先用最细分子项，避免重复计算"""
+    """从REMIND数据中提取年度EV用电量，使用最粗的项"""
     
     logger.info(f"从REMIND数据中提取 {target_year} 年EV用电量")
     
@@ -49,13 +49,6 @@ def extract_ev_annual_energy(remind_file: str, ev_types_file: str, target_year: 
         (pl.col("Variable").str.contains("Electricity"))
     )
     
-    # 解析车辆类型
-    def get_part(s: str, index: int):
-        try: 
-            return s.split('|')[index]
-        except IndexError: 
-            return None
-
     # 转为pandas便于处理
     df = filtered.to_pandas()
     
@@ -64,13 +57,11 @@ def extract_ev_annual_energy(remind_file: str, ev_types_file: str, target_year: 
     for v in df['Variable']:
         logger.info(f"  {v}")
     
-    # 通用的细分/汇总判定函数，用所有非汇总项，避免重复且不遗漏
-    def sum_subtypes(df, main_type, year):
+    def get_coarse_energy(df, main_type, year):
         """
-        用所有非汇总项的策略：
-        - 汇总项：以|main_type|Electricity结尾的
-        - 非汇总项：除了汇总项之外的所有项
-        - 这样既避免重复，又不会遗漏任何细分类型
+        获取最粗项的能源消耗：
+        - 找到以|main_type|Electricity结尾的项
+        - 这些就是最粗的项
         """
         mask_type = df['Variable'].str.contains(f'|{main_type}|', regex=False)
         df_type = df[mask_type].copy()
@@ -78,36 +69,36 @@ def extract_ev_annual_energy(remind_file: str, ev_types_file: str, target_year: 
             logger.warning(f"没有找到包含 {main_type} 的数据")
             return 0.0
         
-        # 找汇总项（以|main_type|Electricity结尾）
-        mask_summary = df_type['Variable'].str.endswith(f'|{main_type}|Electricity')
-        df_non_summary = df_type[~mask_summary]  # 所有非汇总项
+        # 找到以|main_type|Electricity结尾的项（最粗项）
+        coarse_items = df_type[df_type['Variable'].str.endswith(f'|{main_type}|Electricity')]
         
-        if not df_non_summary.empty:
-            total_energy = df_non_summary[str(year)].sum()
-            logger.info(f"{main_type} 用所有非汇总项，{len(df_non_summary)}条，总和: {total_energy:.6f} EJ")
-            logger.info(f"非汇总项详情:")
-            for _, row in df_non_summary.iterrows():
+        if not coarse_items.empty:
+            total_energy = coarse_items[str(year)].sum()
+            logger.info(f"{main_type} 最粗项:")
+            for _, row in coarse_items.iterrows():
                 logger.info(f"  {row['Variable']}: {row[str(year)]:.6f} EJ")
+            logger.info(f"{main_type} 最粗项总和: {total_energy:.6f} EJ")
             return total_energy
         else:
-            # 如果没有非汇总项，用汇总项
-            total_energy = df_type[mask_summary][str(year)].sum()
-            logger.info(f"{main_type} 只有汇总项，总和: {total_energy:.6f} EJ")
-            return total_energy
+            logger.warning(f"没有找到 {main_type} 的最粗项")
+            return 0.0
 
     # Bus 直接用Bus类型
-    bus_energy = sum_subtypes(df, 'Bus', target_year)
+    bus_energy = get_coarse_energy(df, 'Bus', target_year)
     logger.info(f"Bus能源: {bus_energy:.6f} EJ")
+    
     # Heavy
-    heavy_energy = sum_subtypes(df, 'Heavy', target_year)
+    heavy_energy = get_coarse_energy(df, 'Heavy', target_year)
     logger.info(f"Heavy能源: {heavy_energy:.6f} EJ")
+    
     # Light
-    light_energy = sum_subtypes(df, 'Light', target_year)
+    light_energy = get_coarse_energy(df, 'Light', target_year)
     logger.info(f"Light能源: {light_energy:.6f} EJ")
     spv_energy = heavy_energy + light_energy
     logger.info(f"SPV能源(Heavy+Light): {spv_energy:.6f} EJ")
+    
     # LDV
-    ldv_energy = sum_subtypes(df, 'LDV', target_year)
+    ldv_energy = get_coarse_energy(df, 'LDV', target_year)
     logger.info(f"LDV能源: {ldv_energy:.6f} EJ")
     
     # 使用EV类型文件拆分LDV
@@ -119,9 +110,11 @@ def extract_ev_annual_energy(remind_file: str, ev_types_file: str, target_year: 
         energy = ldv_energy * ratio
         logger.info(f"{v_type}能源: {energy:.6f} EJ (比例: {ratio})")
         total_ev_energy += energy
+    
     # 添加其他类型
     total_ev_energy += bus_energy + spv_energy
     logger.info(f"EV能源总和(EJ): {total_ev_energy:.6f} EJ")
+    
     # 转换为MWh
     total_ev_energy_mwh = total_ev_energy * 277.778 * 1000000  # EJ to TWh to MWh
     logger.info(f"EV能源总和(MWh): {total_ev_energy_mwh:.2f} MWh")
@@ -539,10 +532,15 @@ if __name__ == "__main__":
             # 如果不集成交通负荷，生成空的EV负荷文件
             ev_file = outp_files["disagg_load"].replace("ac_load_disagg.csv", "ac_load_disagg_ev.csv")
             logger.info(f"Creating empty EV load file: {ev_file}")
-            # 创建一个空的DataFrame，格式与正常EV负荷文件相同
             empty_ev_df = pd.DataFrame()
             empty_ev_df.to_csv(ev_file)
             logger.info(f"Empty EV load file created: {ev_file}")
+
+            # 新增：生成空的non-EV负荷文件，防止Snakemake报错
+            non_ev_file = outp_files["disagg_load"].replace(".csv", "_non_ev.csv")
+            logger.info(f"Creating empty non-EV load file: {non_ev_file}")
+            empty_ev_df.to_csv(non_ev_file)
+            logger.info(f"Empty non-EV load file created: {non_ev_file}")
     if "harmonize_model_caps" in results:
         logger.info("Exporting harmonized model capacities")
         for year, df in results["harmonize_model_caps"].items():

@@ -90,6 +90,8 @@ rule disaggregate_remind_data:
         paid_off=DERIVED_DATA + "/remind/harmonized_capacities/paid_off_capacities.csv",
         disagg_load=DERIVED_DATA + "/remind/ac_load_disagg.csv",
         disagg_ev_load=DERIVED_DATA + "/remind/ac_load_disagg_ev.csv",
+        # 新增：非EV负荷分解结果
+        disagg_non_ev_load=DERIVED_DATA + "/remind/ac_load_disagg_non_ev.csv",
     log:
         LOG_DIR + "/remind_coupling/disaggregate_data.log",
     conda:

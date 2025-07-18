@@ -216,12 +216,14 @@ rule build_load_profiles:
         cutout = CUTOUT_PATH,
         intraday_profiles="resources/data/heating/heat_load_profile_DK_AdamJensen.csv",
         space_heat_demand="resources/data/heating/SPH_2020.csv",
+        # 简化：总是包含这些输入，在脚本中根据配置决定使用哪个
         elec_load_projs = path_manager.elec_load(),
+        non_ev_annual_load = DERIVED_DATA + "/remind/ac_load_disagg_non_ev.csv",
         province_codes = "resources/data/regions/province_codes.csv",
         hrly_regional_ac_load = "resources/data/load/Hourly_demand_of_31_province_China_modified_V2.1.csv",
     output:
-        # TODO consider splitting into two rules so elect+hrly can be used DERIVED COMMON
         elec_load_hrly = DERIVED_DATA + "/load/regio_hrly_ac_load_{planning_horizons}.h5",
+        non_ev_load_hrly = DERIVED_DATA + "/load/non_ev_hrly_load_{planning_horizons}.h5",
         heat_demand_profile = DERIVED_DATA + f"/heating-cutout_{CUTOUT_NAME}/"+"heat_demand_profile_{planning_horizons}.h5",
         energy_totals_name = DERIVED_DATA + "/" +f"energy_totals_{CUTOUT_NAME}_"+"{planning_horizons}.h5"
     log: LOG_DIR + "/build_load_profiles/build_{planning_horizons}"+f"_{CUTOUT_NAME}.log"
@@ -247,8 +249,11 @@ if config["run"].get("integrate_transport_load", False):
         
     rule integrate_transport_load:
         input:
+            # 简化：总是包含这些输入，在脚本中根据配置决定使用哪个
             elec_load = DERIVED_DATA + "/load/regio_hrly_ac_load_{planning_horizons}.h5",
-            ev_hourly_load = DERIVED_DATA + "/load/ev_hourly_load_{planning_horizons}.h5"
+            non_ev_load = DERIVED_DATA + "/load/non_ev_hrly_load_{planning_horizons}.h5",
+            ev_hourly_load = DERIVED_DATA + "/load/ev_hourly_load_{planning_horizons}.h5",
+            remind_loads = DERIVED_DATA + "/remind/yrly_loads.csv"
         output:
             integrated_load = DERIVED_DATA + "/load/integrated_load_{planning_horizons}.h5"
         log: LOG_DIR + "/integrate_transport_load/integrate_{planning_horizons}.log"
@@ -316,6 +321,8 @@ if config["foresight"] in ["overnight"]:
         ruleorder: integrate_transport_load > prepare_networks
         ruleorder: generate_ev_hourly_load > integrate_transport_load
         ruleorder: disaggregate_remind_data > generate_ev_hourly_load
+        ruleorder: disaggregate_remind_data > build_load_profiles  # 确保这个依赖关系存在
+        ruleorder: disaggregate_remind_data > integrate_transport_load
 
 
     paidoff_caps = DERIVED_DATA + "/remind/harmonized_capacities/paid_off_capacities.csv"

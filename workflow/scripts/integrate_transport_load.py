@@ -20,6 +20,7 @@ import numpy as np
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 import yaml
+import polars as pl
 
 # 添加脚本目录到路径
 sys.path.append(str(Path(__file__).parent))
@@ -233,8 +234,61 @@ class TransportLoadIntegrator:
             logger.error(f"保存集成负荷数据失败: {e}")
             raise
     
+    def verify_total_energy(self, integrated_load: pd.DataFrame, remind_loads_file: str, target_year: int) -> bool:
+        """
+        验证集成负荷的总电量是否与原始REMIND总电力负荷一致
+        
+        Args:
+            integrated_load: 集成后的负荷数据
+            remind_loads_file: REMIND负荷数据文件路径（已处理）
+            target_year: 目标年份
+            
+        Returns:
+            bool: 是否一致
+        """
+        logger.info("=== 验证总电量一致性 ===")
+        
+        # 1. 计算集成负荷的总电量（MWh）
+        integrated_total_energy = integrated_load.sum().sum()  # 所有省份、所有时间的总和
+        logger.info(f"集成负荷总电量: {integrated_total_energy:.2f} MWh")
+        
+        # 2. 从处理好的REMIND负荷数据中获取总电力负荷
+        try:
+            # 读取REMIND负荷数据（已处理）
+            loads_data = pd.read_csv(remind_loads_file)
+            
+            # 过滤出目标年份的总电力负荷
+            target_year_loads = loads_data[loads_data['year'] == target_year]
+            ac_loads = target_year_loads[target_year_loads['load'] == 'ac']
+            
+            if not ac_loads.empty:
+                original_energy_mwh = ac_loads['value'].sum()
+                logger.info(f"原始REMIND总电力负荷: {original_energy_mwh:.2f} MWh")
+                
+                # 3. 比较差异
+                difference = abs(integrated_total_energy - original_energy_mwh)
+                relative_difference = (difference / original_energy_mwh) * 100
+                
+                logger.info(f"绝对差异: {difference:.2f} MWh")
+                logger.info(f"相对差异: {relative_difference:.4f}%")
+                
+                # 4. 判断是否一致（允许1%的误差）
+                if relative_difference <= 1.0:
+                    logger.info("✅ 总电量一致性检查通过")
+                    return True
+                else:
+                    logger.warning(f"❌ 总电量一致性检查失败，差异过大: {relative_difference:.4f}%")
+                    return False
+            else:
+                logger.warning(f"❌ 在REMIND负荷数据中未找到 {target_year} 年的总电力负荷")
+                return False
+                
+        except Exception as e:
+            logger.error(f"❌ 验证总电量时出错: {e}")
+            return False
+
     def run_integration(self, existing_load_file: str, transport_load_file: str, 
-                       output_file: str, ev_load_file: str) -> pd.DataFrame:
+                       output_file: str, ev_load_file: str, original_remind_file: str = None) -> pd.DataFrame:
         """
         运行负荷集成流程
         
@@ -243,6 +297,7 @@ class TransportLoadIntegrator:
             transport_load_file: 交通负荷文件路径
             output_file: 输出文件路径
             ev_load_file: EV负荷文件路径（可选）
+            original_remind_file: 原始REMIND数据文件路径（用于验证）
             
         Returns:
             pd.DataFrame: 集成后的负荷数据
@@ -326,7 +381,21 @@ class TransportLoadIntegrator:
                 else:
                     logger.warning("没有找到EV负荷的共同省份，跳过EV负荷集成")
         
-        # 5. 保存结果
+        # 5. 验证总电量一致性
+        if original_remind_file and Path(original_remind_file).exists():
+            target_year = self.planning_year
+            is_consistent = self.verify_total_energy(integrated_load, original_remind_file, target_year)
+            
+            if not is_consistent:
+                logger.error("❌ 总电量一致性检查失败，请检查数据")
+                # 可以选择是否继续或抛出异常
+                # raise ValueError("总电量一致性检查失败")
+            else:
+                logger.info("✅ 总电量一致性检查通过，数据正确")
+        else:
+            logger.warning("⚠️ 未提供原始REMIND数据文件，跳过总电量验证")
+        
+        # 6. 保存结果
         self.save_integrated_load(integrated_load, output_file)
         
         logger.info("=== 交通负荷集成流程完成 ===")
@@ -346,27 +415,6 @@ def main():
     config = snakemake.config
     planning_year = int(snakemake.wildcards.planning_horizons)
     
-    # 检查是否需要集成交通负荷
-    integrate_transport_load = snakemake.config["run"].get("integrate_transport_load", False)
-    logger.info(f"集成交通负荷设置: {integrate_transport_load}")
-    
-    # 获取输入和输出文件路径
-    existing_load_file = snakemake.input.elec_load
-    output_file = snakemake.output.integrated_load
-    logger.info(f"现有负荷文件: {existing_load_file}")
-    logger.info(f"输出文件: {output_file}")
-    
-    if not integrate_transport_load:
-        # 如果不需要集成交通负荷，直接复制文件
-        logger.info("跳过交通负荷集成，直接复制现有负荷文件")
-        import shutil
-        shutil.copy2(existing_load_file, output_file)
-        logger.info(f"文件复制完成: {existing_load_file} -> {output_file}")
-        return
-    
-    # 如果需要集成交通负荷，运行完整的集成流程
-    logger.info("开始交通负荷集成流程")
-    
     # 创建集成器
     integrator = TransportLoadIntegrator({
         'planning_horizons': planning_year,
@@ -379,12 +427,28 @@ def main():
         ev_load_file = snakemake.input.ev_hourly_load
         logger.info(f"EV负荷文件: {ev_load_file}")
     
+    # 根据配置选择输入文件
+    integrate_transport_load = snakemake.config["run"].get("integrate_transport_load", False)
+    
+    if integrate_transport_load:
+        # 如果集成交通负荷，使用非EV负荷
+        existing_load_file = snakemake.input.non_ev_load
+        logger.info(f"使用非EV负荷: {existing_load_file}")
+    else:
+        # 如果不集成交通负荷，使用总负荷
+        existing_load_file = snakemake.input.elec_load
+        logger.info(f"使用总负荷: {existing_load_file}")
+    
+    # 获取REMIND负荷数据文件路径（用于验证）
+    remind_loads_file = snakemake.input.remind_loads
+    logger.info(f"REMIND负荷数据文件: {remind_loads_file}")
+    
     # 运行集成流程
     integrated_load = integrator.run_integration(
-        existing_load_file, "", output_file, ev_load_file  # 交通负荷文件传空字符串
+        existing_load_file, "", snakemake.output.integrated_load, ev_load_file, remind_loads_file
     )
     
-    logger.info(f"负荷集成完成，输出文件: {output_file}")
+    logger.info(f"负荷集成完成，输出文件: {snakemake.output.integrated_load}")
 
 if __name__ == "__main__":
     main() 
