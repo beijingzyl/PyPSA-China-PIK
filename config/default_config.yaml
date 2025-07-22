@@ -4,7 +4,8 @@
 # DO NOT FORGET TO LOOK AT THE TECHNOLOGY CONFIGURATION FILES
 
 run:
-  name: unamed_run
+  name: nocoipling_test1
+  is_remind_coupled: false
 foresight: "overnight"
 
 paths:
@@ -25,13 +26,6 @@ scenario:
   co2_pathway: ["exp175default"] # co2_scenarios that will be used
   topology: "current+FCG" # "current" or "FCG" or "current+FCG" or "current+Neighbor"
   planning_horizons:
-    - 2025
-    - 2030
-    - 2035
-    - 2040
-    - 2045
-    - 2050
-    - 2055
     - 2060
   heating_demand: ["positive"]
 

@@ -53,6 +53,183 @@ def plot_static_per_carrier(ds: DataFrame, ax: axes.Axes, colors: DataFrame, dro
     ax.grid(axis="y")
 
 
+def plot_enhanced_market_value(n: pypsa.Network, ax: axes.Axes, colors: DataFrame, carrier="AC", show_mv_text=True, min_gen_share=0):
+    # 获取数据
+    mv_data = n.statistics.market_value(bus_carrier=carrier, comps="Generator").dropna()
+    supply_data = n.statistics.supply(bus_carrier=carrier, comps="Generator")
+    total_supply = supply_data.sum()
+    gen_shares = (supply_data / total_supply * 100).dropna()
+    lcoe_data = calc_lcoe(n, groupby=["carrier"], comps="Generator")["LCOE"].dropna()
+
+    # 技术名映射到 nice_name
+    def get_nice_name(idx):
+        if isinstance(idx, tuple):
+            carrier = idx[-1]
+        else:
+            carrier = idx
+        try:
+            return n.carriers.loc[carrier, "nice_name"]
+        except Exception:
+            return str(carrier)
+
+    mv_data.index = mv_data.index.map(get_nice_name)
+    gen_shares.index = gen_shares.index.map(get_nice_name)
+    lcoe_data.index = lcoe_data.index.map(get_nice_name)
+
+    # 检查重复的 nice_name
+    for name, series in zip(
+        ["mv_data", "gen_shares", "lcoe_data"],
+        [mv_data, gen_shares, lcoe_data]
+    ):
+        duplicated = series.index[series.index.duplicated()]
+        if len(duplicated) > 0:
+            logger.warning(f"{name} 有重复的 nice_name: {duplicated.tolist()}")
+            # 输出所有重复项的明细
+            for dup in set(duplicated):
+                logger.warning(f"{name} 重复项 {dup} 的所有值：\n{series[series.index == dup]}")
+        else:
+            logger.info(f"{name} 没有重复的 nice_name")
+
+    # 合并成 DataFrame，只保留有完整数据的 nice_name
+    df = pd.DataFrame({
+        "MV": mv_data,
+        "LCOE": lcoe_data,
+        "GenShare": gen_shares
+    }).dropna()
+
+    # 过滤掉发电占比太低的技术
+    if min_gen_share > 0.01:
+        df = df[df["GenShare"] >= min_gen_share]
+
+    # 去重（如有重复，保留发电量占比最大的）
+    df = df.loc[~df.index.duplicated(keep='first')]
+
+    # 按 MV 升序排序
+    df = df.sort_values("MV")
+
+    y_pos = range(len(df))
+
+    # 画条形图
+    bars = ax.barh(y_pos, df["MV"], color=[colors.get(tech, "lightgrey") for tech in df.index], alpha=0.7, label="Market Value")
+
+    # 显示MV数值
+    if show_mv_text:
+        for i, val in enumerate(df["MV"]):
+            ax.text(val + 0.5, i, f'{val:.1f}', color='black', va='center', ha='left', fontsize=9)
+
+    # Generation share 只画点，不画线，markersize=10
+    ax2 = ax.twiny()
+    ax2.plot(df["GenShare"], y_pos, color='red', marker='o', linestyle='', label='Generation Share (%)', markersize=10, lw=0)
+    for i, val in enumerate(df["GenShare"]):
+        ax2.text(val + 0.5, i, f'{val:.1f}%', color='red', va='center', ha='left', fontsize=9)
+
+    # 设置y轴
+    ax.set_yticks(y_pos)
+    ax.set_yticklabels(df.index)
+    ax.set_xlabel("Market Value [€/MWh]")
+    ax2.set_xlabel("Generation Share [%]")
+
+    # 去掉主副坐标轴的网格线
+    ax.grid(False)
+    ax2.grid(False)
+
+    # 对齐主副坐标轴的零刻度
+    ax2.set_xlim(left=0)
+    ax.set_xlim(left=0)
+
+    # 图例
+    lines, labels = ax2.get_legend_handles_labels()
+    bars_legend = ax.barh([], [], color="lightgrey", alpha=0.7, label="Market Value")
+    ax.legend([bars_legend, lines[0]], ["Market Value", "Generation Share (%)"], loc='best')
+
+    return ax, ax2
+
+
+def plot_enhanced_capacity_factor(n: pypsa.Network, ax: axes.Axes, colors: DataFrame, carrier="AC"):
+    # 统计实际CF
+    cf_data = n.statistics.capacity_factor(groupby=["carrier"]).dropna()
+    if ("Link", "battery") in cf_data.index:
+        cf_data.loc[("Link", "battery discharger")] = cf_data.loc[("Link", "battery")]
+        cf_data.drop(index=("Link", "battery"), inplace=True)
+    cf_data = cf_data.groupby(level=1).sum()
+    def safe_get_nice_name(idx):
+        try:
+            return n.carriers.loc[idx, "nice_name"]
+        except KeyError:
+            carrier_mapping = {
+                "battery charger": "Battery Storage",
+                "battery discharger": "Battery Discharger",
+                "battery": "Battery Storage"
+            }
+            return carrier_mapping.get(idx, idx)
+    cf_data.index = cf_data.index.map(safe_get_nice_name)
+
+    # 统计理论CF（优先用p_nom_opt）
+    gen = n.generators.copy()
+    gen["theo_cf"] = n.generators_t.p_max_pu.mean(axis=0)
+    gen["nice_name"] = gen["carrier"].map(safe_get_nice_name)
+    gen["p_nom_used"] = gen["p_nom_opt"].where(~gen["p_nom_opt"].isna(), gen["p_nom"])
+    gen = gen[(gen["p_nom_used"] > 0) & (~gen["theo_cf"].isna())]
+    gen["theoretical_energy"] = gen["theo_cf"] * gen["p_nom_used"]
+    theoretical_energy = gen.groupby("nice_name")["theoretical_energy"].sum()
+    total_p_nom = gen.groupby("nice_name")["p_nom_used"].sum()
+    theoretical_cf_auto = theoretical_energy / total_p_nom
+
+    # 日志输出理论CF（可选，调试时保留）
+    logger.info("自动读取的理论容量因子（theoretical CF）：")
+    for tech, val in theoretical_cf_auto.items():
+        logger.info(f"  {tech}: {val:.4f}")
+
+    # ====== 手动计算水电实际CF并对比 ======
+    hydro = gen[gen["nice_name"] == "Hydroelectricity"]
+    manual_actual_cf = None
+    if not hydro.empty:
+        actual_energy = n.generators_t.p[hydro.index].sum().sum()  # 全部水电实际发电量
+        total_p_nom = hydro["p_nom_used"].sum()
+        hours = len(n.snapshots)
+        manual_actual_cf = actual_energy / (total_p_nom * hours)
+        print(f"手动算的水电实际CF: {manual_actual_cf:.4f}")
+        try:
+            pypsa_cf = cf_data.loc["Hydroelectricity"]
+            print(f"PyPSA统计的水电实际CF: {pypsa_cf:.4f}")
+        except Exception as e:
+            print("PyPSA统计的水电实际CF获取失败：", e)
+
+    # 只画两者都有的技术
+    common_techs = cf_data.index.intersection(theoretical_cf_auto.index)
+    cf_filtered = cf_data.loc[common_techs]
+    theo_cf_filtered = theoretical_cf_auto.loc[cf_filtered.index]
+    cf_filtered = cf_filtered.sort_values(ascending=True)
+    theo_cf_filtered = theo_cf_filtered.loc[cf_filtered.index]
+
+    # 替换水电的实际CF为手动算的值
+    if manual_actual_cf is not None and "Hydroelectricity" in cf_filtered.index:
+        cf_filtered.loc["Hydroelectricity"] = manual_actual_cf
+
+    # 绘图
+    x_pos = range(len(cf_filtered))
+    width = 0.35
+    bars1 = ax.barh([i - width/2 for i in x_pos], cf_filtered.values,
+                    width, color=[colors.get(tech, "lightgrey") for tech in cf_filtered.index],
+                    alpha=0.8, label='Actual CF')
+    bars2 = ax.barh([i + width/2 for i in x_pos], theo_cf_filtered.values,
+                    width, color=[colors.get(tech, "lightgrey") for tech in theo_cf_filtered.index],
+                    alpha=0.4, label='Theoretical CF')
+    for i, (tech, cf_val) in enumerate(cf_filtered.items()):
+        ax.text(cf_val + 0.01, i - width/2, f'{cf_val:.2f}', va='center', ha='left', fontsize=8,
+                bbox=dict(boxstyle="round,pad=0.2", facecolor="white", alpha=0.8))
+        theo_val = theo_cf_filtered[tech]
+        ax.text(theo_val + 0.01, i + width/2, f'{theo_val:.2f}', va='center', ha='left', fontsize=8,
+                bbox=dict(boxstyle="round,pad=0.2", facecolor="white", alpha=0.5))
+    ax.set_yticks(x_pos)
+    ax.set_yticklabels(cf_filtered.index)
+    ax.set_xlabel("Capacity Factor")
+    ax.set_xlim(0, max(cf_filtered.max(), theo_cf_filtered.max()) * 1.1)
+    ax.grid(False)
+    ax.legend()
+    return ax
+
+
 if __name__ == "__main__":
     if "snakemake" not in globals():
 
@@ -91,16 +268,8 @@ if __name__ == "__main__":
 
     attached_carriers = filter_carriers(n, carrier)
     if "capacity_factor" in stats_list:
-        fig, ax = plt.subplots()
-        ds = n.statistics.capacity_factor(groupby=["carrier"]).dropna()
-        # avoid grouping battery uif same name
-        if ("Link", "battery") in ds.index:
-            ds.loc[("Link", "battery charger")] = ds.loc[("Link", "battery")]
-            ds.drop(index=("Link", "battery"), inplace=True)
-        ds = ds.groupby(level=1).sum()
-        ds = ds.loc[ds.index.isin(attached_carriers)]
-        ds.index = ds.index.map(lambda idx: n.carriers.loc[idx, "nice_name"])
-        plot_static_per_carrier(ds, ax, colors=colors)
+        fig, ax = plt.subplots(figsize=(12, 8))
+        plot_enhanced_capacity_factor(n, ax, colors, carrier)
         fig.tight_layout()
         fig.savefig(os.path.join(outp_dir, "capacity_factor.png"))
 
@@ -149,18 +318,28 @@ if __name__ == "__main__":
 
         # Handle battery components correctly
         if ("Link", "battery") in ds.index:
-            ds.loc[("Link", "battery charger")] = ds.loc[("Link", "battery")]
+            ds.loc[("Link", "battery discharger")] = ds.loc[("Link", "battery")]
             ds.drop(index=("Link", "battery"), inplace=True)
         ds.drop("stations", level=1, inplace=True)
         if "load shedding" in ds.index.get_level_values(1):
             ds.drop("load shedding", level=1, inplace=True)
         ds = ds.groupby(level=1).sum()
         ds = ds.loc[ds.index.isin(attached_carriers)]
-        ds.index = ds.index.map(lambda idx: n.carriers.loc[idx, "nice_name"])
-        if "Line" in ds.index:
-            ds = ds.drop("Line")
-        ds = ds.drop(("Generator", "Load"), errors="ignore")
-        ds = ds.abs() / PLOT_CAP_UNITS
+        
+        # 安全地映射carrier名称到nice_name
+        def safe_get_nice_name(idx):
+            try:
+                return n.carriers.loc[idx, "nice_name"]
+            except KeyError:
+                # 如果carrier不存在，尝试使用默认映射
+                carrier_mapping = {
+                    "battery charger": "Battery Storage",
+                    "battery discharger": "Battery Discharger",
+                    "battery": "Battery Storage"
+                }
+                return carrier_mapping.get(idx, idx)
+        
+        ds.index = ds.index.map(safe_get_nice_name)
         ds.attrs["unit"] = PLOT_CAP_LABEL
         plot_static_per_carrier(ds, ax, colors=colors)
         fig.tight_layout()
@@ -193,6 +372,81 @@ if __name__ == "__main__":
         fig.tight_layout()
         fig.savefig(os.path.join(outp_dir, "curtailment.png"))
 
+        # 1. 统计分省分技术的弃电量和实际发电量
+        curtailment = n.statistics.curtailment(comps="Generator", groupby=["location", "carrier"], bus_carrier=carrier)
+        supply = n.statistics.supply(comps="Generator", groupby=["location", "carrier"], bus_carrier=carrier)
+
+        # 2. 计算弃电率（弃电量 / (弃电量 + 实际发电量)）
+        curtailment_rate = curtailment / (curtailment + supply.replace(0, np.nan)) * 100
+        curtailment_rate = curtailment_rate.fillna(0)
+
+        # 3. 转为DataFrame用于绘图
+        df_rate = curtailment_rate.unstack(level=-1).fillna(0)
+        # columns映射为nice_name
+        df_rate.columns = [n.carriers.loc[c, "nice_name"] if c in n.carriers.index else c for c in df_rate.columns]
+        colors_nice = n.carriers.set_index("nice_name").color
+        color_list = [colors_nice.get(tech, "lightgrey") for tech in df_rate.columns]
+
+        import matplotlib.pyplot as plt
+        import numpy as np
+        def heatmap(data, row_labels, col_labels, ax=None,
+                    cbar_kw={}, cbarlabel="", **kwargs):
+            if not ax:
+                ax = plt.gca()
+            im = ax.imshow(data, aspect='auto', interpolation='none', **kwargs)
+            cbar = ax.figure.colorbar(im, ax=ax, **cbar_kw)
+            cbar.ax.set_ylabel(cbarlabel, rotation=-90, va="bottom")
+            ax.set_xticks(np.arange(data.shape[1]), labels=col_labels)
+            ax.set_yticks(np.arange(data.shape[0]), labels=row_labels)
+            ax.tick_params(top=True, bottom=False, labeltop=True, labelbottom=False)
+            plt.setp(ax.get_xticklabels(), rotation=45, ha="left", rotation_mode="anchor")
+            for edge, spine in ax.spines.items():
+                spine.set_visible(False)
+            # ax.set_xticks(np.arange(data.shape[1]+1)-.5, minor=True)
+            # ax.set_yticks(np.arange(data.shape[0]+1)-.5, minor=True)
+            # ax.grid(which="minor", color="w", linestyle='-', linewidth=2)
+            # ax.tick_params(which="minor", bottom=False, left=False)
+            return im, cbar
+
+        def annotate_heatmap(im, data=None, valfmt="{x:.1f}",
+                             textcolors=("black", "white"),
+                             threshold=None, **textkw):
+            if data is None:
+                data = im.get_array()
+            if threshold is not None:
+                threshold = im.norm(threshold)
+            else:
+                threshold = im.norm(data.max())/2.
+            kw = dict(horizontalalignment="center", verticalalignment="center")
+            kw.update(textkw)
+            texts = []
+            for i in range(data.shape[0]):
+                for j in range(data.shape[1]):
+                    kw.update(color=textcolors[int(im.norm(data[i, j]) > threshold)])
+                    text = im.axes.text(j, i, valfmt.format(x=data[i, j]), **kw)
+                    texts.append(text)
+            return texts
+
+        vre_techs = snakemake.config["Techs"]["vre_techs"]
+        vre_cols = [c for c in df_rate.columns if any(v.lower() in c.lower() for v in vre_techs)]
+        df_vre = df_rate[vre_cols]
+
+        fig, ax = plt.subplots(figsize=(14, 8))
+        im, cbar = heatmap(
+            df_vre.values, df_vre.index, df_vre.columns, ax=ax,
+            cmap="magma_r", cbarlabel="Curtailment Rate [%]", vmin=0, vmax=100
+        )
+        annotate_heatmap(im, valfmt="{x:.1f}", size=8, threshold=50, textcolors=("black", "white"))
+        ax.set_xlabel("Technology")
+        ax.set_ylabel("Province")
+        ax.set_title("Curtailment Rate Heatmap by Province and Technology")
+        ax.grid(False)
+        plt.tight_layout()
+        plt.savefig(os.path.join(outp_dir, "curtailment_heatmap.png"))
+        plt.close()
+
+
+
     if "supply" in stats_list:
         fig, ax = plt.subplots()
         ds = n.statistics.supply(bus_carrier=carrier)
@@ -216,9 +470,8 @@ if __name__ == "__main__":
         fig.savefig(os.path.join(outp_dir, "withdrawal.png"))
 
     if "market_value" in stats_list:
-        fig, ax = plt.subplots()
-        ds = n.statistics.market_value(bus_carrier=carrier)
-        plot_static_per_carrier(ds, ax, colors=colors)
+        fig, ax = plt.subplots(figsize=(12, 8))
+        plot_enhanced_market_value(n, ax, colors, carrier, show_mv_text=True, min_gen_share=1)
         fig.tight_layout()
         fig.savefig(os.path.join(outp_dir, "market_value.png"))
 
@@ -242,3 +495,59 @@ if __name__ == "__main__":
         plot_static_per_carrier(ds, ax, colors=colors)
         fig.tight_layout()
         fig.savefig(os.path.join(outp_dir, "MV_minus_LCOE.png"))
+
+    if "province_peakload_capacity" in stats_list:
+        # 1. 统计各省峰值负荷
+        load = n.loads.copy()
+        load["province"] = load["bus"].map(n.buses["location"])
+        peak_load = n.loads_t.p_set.groupby(load["province"], axis=1).sum().max()
+        print("==== 各省峰值负荷 ====")
+        print(peak_load)
+        # 2. 统计各省各技术装机容量
+        gen = n.generators.copy()
+        gen["province"] = gen["bus"].map(n.buses["location"])
+        gen["nice_name"] = gen["carrier"].map(lambda idx: n.carriers.loc[idx, "nice_name"] if idx in n.carriers.index else idx)
+        gen["p_nom_used"] = gen["p_nom_opt"].where(~gen["p_nom_opt"].isna(), gen["p_nom"])
+        gen = gen[gen["p_nom_used"] > 0]
+        cap_by_prov_tech = gen.groupby(["province", "nice_name"])["p_nom_used"].sum().unstack(fill_value=0)
+        print("==== 各省各技术装机容量 ====")
+        print(cap_by_prov_tech)
+        # 3. 可调度/不可调度分组
+        dispatchable = ["Coal", "Hydroelectricity", "Nuclear", "Biomass"]
+        nondispatch = [c for c in cap_by_prov_tech.columns if c not in dispatchable]
+        all_cols = [c for c in dispatchable + nondispatch if c in cap_by_prov_tech.columns]
+        cap_by_prov_tech = cap_by_prov_tech[all_cols]
+        # 4. 合并峰值负荷和装机
+        df_plot = cap_by_prov_tech.copy()
+        df_plot["Peak Load"] = peak_load
+        print("==== 最终用于绘图的DataFrame ====")
+        print(df_plot)
+        # 5. 绘图（模仿installed_capacity的画法，不显示Gas）
+        # 只取装机部分用于bar，去掉Peak Load列和Gas
+        bar_cols = [c for c in df_plot.columns if c not in ["Peak Load", "Gas", "hydro_inflow"]]
+        # 重新排序，优先显示dispatchable（不含Gas）
+        dispatchable = ["Coal", "Hydroelectricity", "Nuclear", "Biomass"]
+        nondispatch = [c for c in bar_cols if c not in dispatchable]
+        bar_cols = [c for c in dispatchable if c in bar_cols] + nondispatch
+        color_list = [n.carriers.set_index("nice_name").color.get(tech, "lightgrey") for tech in bar_cols]
+        fig, ax = plt.subplots(figsize=(14, 8))
+        df_plot[bar_cols].plot(kind="barh", stacked=True, ax=ax, color=color_list, alpha=0.8)
+        # 峰值负荷画红色竖线
+        for i, prov in enumerate(df_plot.index):
+            ax.plot(df_plot.loc[prov, "Peak Load"], i, "r|", markersize=18, label="Peak Load" if i==0 else "")
+        ax.set_xlabel("Capacity [MW]")
+        ax.set_ylabel("Province")
+        ax.set_title("Peak Load vs Installed Capacity by Province")
+        ax.grid(False)
+        # 只保留一个Peak Load图例
+        handles, labels = ax.get_legend_handles_labels()
+        seen = set()
+        new_handles, new_labels = [], []
+        for h, l in zip(handles, labels):
+            if l not in seen:
+                new_handles.append(h)
+                new_labels.append(l)
+                seen.add(l)
+        ax.legend(new_handles, new_labels, loc="best")
+        fig.tight_layout()
+        fig.savefig(os.path.join(outp_dir, "province_peakload_capacity.png"))
