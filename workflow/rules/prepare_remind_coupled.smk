@@ -5,8 +5,9 @@ Prepare remind outputs for pypsa-coupled runs using the Remind-PyPSA-coupling pa
 REMIND_REGION = config["run"].get("remind", {}).get("region")
 
 
-# Only generate EV references if sector coupling is enabled
-if config.get("sectors", {}).get("electric_vehicles", False):
+# Generate sector references if any sector coupling is enabled
+if (config.get("sectors", {}).get("electric_vehicles", False) or 
+    config.get("add_H2", False)):
     rule generate_regional_references:
         """
         Generate reference data files for different departments
@@ -23,6 +24,7 @@ if config.get("sectors", {}).get("electric_vehicles", False):
         output:
             ev_passenger_reference=DERIVED_DATA + "/remind/references/ev_passenger_shares.csv",
             ev_freight_reference=DERIVED_DATA + "/remind/references/ev_freight_shares.csv",
+            h2_demand_reference=DERIVED_DATA + "/remind/references/h2_demand_shares.csv",
         log:
             LOG_DIR + "/remind_coupling/generate_references.log",
         conda:
@@ -102,6 +104,7 @@ rule disaggregate_remind_data:
         reference_load="resources/data/load/Provincial_Load_2020_2060_MWh.csv",
         ev_pass_reference=DERIVED_DATA + "/remind/references/ev_passenger_shares.csv",
         ev_freight_reference=DERIVED_DATA + "/remind/references/ev_freight_shares.csv",
+        h2_demand_reference=DERIVED_DATA + "/remind/references/h2_demand_shares.csv",
     output:
         capacities=DERIVED_DATA + "/remind/harmonized_capacities/capacities.csv",
         paid_off=DERIVED_DATA + "/remind/harmonized_capacities/paid_off_capacities.csv",

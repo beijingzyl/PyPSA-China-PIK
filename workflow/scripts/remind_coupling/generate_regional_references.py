@@ -37,6 +37,7 @@ class SectorReferenceGenerator:
         """
         supported_sectors = {
             "ev": "ev_refshare_generator",
+            "h2": "h2_refshare_generator",
             # 'industry': 'industry_refshare_generator',
             # 'residential': 'residential_refshare_generator',
             # 'commercial': 'commercial_refshare_generator',
