@@ -41,10 +41,11 @@ def _get_sector_reference(
         logger.debug(f"Using default AC load distribution for sector '{sector}'")
         return default_reference
 
-    ref_data = data.get(f"{sector}_reference")
+    sector_lower = sector.lower()
+    ref_data = data.get(f"{sector_lower}_reference")
     if ref_data is None:
         logger.info(
-            f"No sector-specific reference data found for '{sector}', using default AC load distribution"
+            f"No sector-specific reference data found for '{sector}' (tried '{sector_lower}_reference'), using default AC load distribution"
         )
         return default_reference
 
