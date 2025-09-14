@@ -358,6 +358,7 @@ if config["foresight"] in ["overnight"]:
                 avail_profile_passenger=DERIVED_DATA + "/transport/avail_profile_passenger_{planning_horizons}.csv",
                 avail_profile_freight=DERIVED_DATA + "/transport/avail_profile_freight_{planning_horizons}.csv",
                 dsm_profile=DERIVED_DATA + "/transport/dsm_profile_{planning_horizons}.csv",
+                ac_load_disagg=DERIVED_DATA + "/remind/ac_load_disagg.csv",
             output:
                 network=RESULTS_DIR+ '/prenetworks-sector/ntwk_{planning_horizons}.nc',
             threads: 1

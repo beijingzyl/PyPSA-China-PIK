@@ -4,9 +4,17 @@ Generates reference data for the hydrogen sector using population-based decompos
 """
 
 import logging
+
 import pandas as pd
 
 logger = logging.getLogger(__name__)
+
+
+# 省份名称映射（只处理内蒙古的拼写差异）
+PROVINCE_MAPPING = {
+    "Innermonglia": "InnerMongolia",  # CSV中的拼写 -> 标准拼写
+    "Innermongolia": "InnerMongolia",  # 另一种可能的拼写变体
+}
 
 
 class SimplePopulationModel:
@@ -20,12 +28,12 @@ class SimplePopulationModel:
         self, population_data: pd.DataFrame, years: list[int]
     ) -> dict:
         """Calculate hydrogen demand shares directly from population data.
-        
+
         Args:
-            population_data: Future population projections 
+            population_data: Future population projections
                              (rows = provinces, columns = years)
             years: List of target years
-            
+
         Returns:
             dict: Dictionary with year as key and {province: H2 share} as value
         """
@@ -48,9 +56,7 @@ class SimplePopulationModel:
             # 🔹 Step 3: 存储为 dict，方便后续转 DataFrame
             predictions[year] = h2_shares.to_dict()
 
-        logger.info(
-            f"Generated H2 demand predictions for {len(years)} years based on population"
-        )
+        logger.info(f"Generated H2 demand predictions for {len(years)} years based on population")
         return predictions
 
 
@@ -58,7 +64,7 @@ def generate_reference(
     years: list[int], input_files: dict[str, str], output_dir: str, config: dict = None
 ):
     """Generate hydrogen sector reference data.
-    
+
     Args:
         years: List of target years for projections
         input_files: Dictionary mapping data types to file paths
@@ -71,7 +77,10 @@ def generate_reference(
     try:
         # 假设 Excel 文件格式： index=province, columns=year
         ssp2_pop = pd.read_excel(input_files["ssp2_pop"], index_col=0)
-        logger.info(f"Loaded future population data: {ssp2_pop.shape}")
+
+        # 🔹 Step A1: 标准化省份名称（处理内蒙古等拼写差异）
+        ssp2_pop.index = ssp2_pop.index.map(lambda x: PROVINCE_MAPPING.get(x, x))
+        logger.info(f"Loaded and normalized future population data: {ssp2_pop.shape}")
     except Exception as e:
         logger.error(f"Failed to load input data: {e}")
         return

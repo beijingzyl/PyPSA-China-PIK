@@ -4,6 +4,7 @@
 """
 
 import logging
+
 import pandas as pd
 import pypsa
 from _helpers import configure_logging, mock_snakemake
@@ -16,6 +17,75 @@ def add_carrier_if_missing(n: pypsa.Network, carrier_name: str):
     if carrier_name not in n.carriers.index:
         n.add("Carrier", carrier_name)
         logger.debug(f"Carrier '{carrier_name}' added to network.")
+
+
+def attach_H2_load(n: pypsa.Network, fp_sectoral_load: str, planning_horizons: str):
+    """
+    向网络添加氢气需求 (Load)，使用年度需求表转为常数负荷。
+
+    Parameters
+    ----------
+    n : pypsa.Network
+        PyPSA 网络对象
+    fp_sectoral_load : str
+        年度氢能需求文件路径 (ac_load_disagg.csv)
+    planning_horizons : str
+        要提取的年份，例如 "2030"
+    """
+    logger.info("Adding hydrogen demand from REMIND scenarios...")
+
+    # 读取氢能需求数据
+    h2_demand = pd.read_csv(fp_sectoral_load)
+    h2_demand = h2_demand[h2_demand["sector"] == "h2_demand"]
+
+    if h2_demand.empty:
+        logger.warning("No h2_demand data found in sectoral load file")
+        return
+
+    # 设置索引为省份，方便后续处理
+    h2_demand = h2_demand.set_index("province")
+
+    h2_carrier = "H2"
+    add_carrier_if_missing(n, h2_carrier)
+
+    target_year = str(planning_horizons)
+    if target_year not in h2_demand.columns:
+        logger.warning(
+            f"Year {target_year} not in demand data. Available: {list(h2_demand.columns)}"
+        )
+        return
+
+    logger.info(f"Using hydrogen demand data for year {target_year}")
+
+    for province, demand_value in h2_demand[target_year].items():
+        h2_bus_name = f"{province} H2"
+
+        if h2_bus_name not in n.buses.index:
+            logger.warning(f"No H2 bus found for province {province}")
+            continue
+
+        # 假设数据是 MWh/year → 转换为平均 MW
+        annual_load_mw = demand_value / 8760
+
+        # 跳过极小的需求值，避免数值问题
+        if annual_load_mw < 10:  # 小于 1 kW
+            logger.debug(f"Skipping {province} H2 demand ({annual_load_mw:.6f} MW) - too small")
+            continue
+
+        # 构造平坦负荷 profile
+        h2_profile = pd.Series(annual_load_mw, index=n.snapshots, name=f"{province} H2 demand")
+
+        n.add(
+            "Load",
+            name=f"{province} H2 demand",
+            bus=h2_bus_name,
+            carrier=h2_carrier,
+            p_set=h2_profile,
+        )
+
+        logger.debug(f"Added {annual_load_mw:.2f} MW H2 demand to bus {h2_bus_name}")
+
+    logger.info(f"Added hydrogen demand for {len(h2_demand)} provinces")
 
 
 def attach_EV_components(
@@ -40,10 +110,14 @@ def attach_EV_components(
     node_ratio = p_set.sum() / max(total_energy, 1e-6)
     number_evs = node_ratio * total_number_evs
 
-    charge_power = (number_evs * options["charge_rate"] * options["share_charger"]).clip(lower=0.001)
+    charge_power = (number_evs * options["charge_rate"] * options["share_charger"]).clip(
+        lower=0.001
+    )
     battery_energy = (number_evs * options["battery_size"]).clip(lower=0.001)
 
-    logger.info(f"EV {ev_type}: DSM {'ON' if dsm_enabled else 'OFF'}, {int(total_number_evs):,} vehicles")
+    logger.info(
+        f"EV {ev_type}: DSM {'ON' if dsm_enabled else 'OFF'}, {int(total_number_evs):,} vehicles"
+    )
 
     # --- 2. EV 负荷总线 ---
     ev_load_carrier = f"EV_{ev_type}_load"
@@ -136,10 +210,18 @@ if __name__ == "__main__":
     nodes = network.buses.query("carrier == 'AC'").index
     dsm_profile = pd.read_csv(snakemake.input.dsm_profile, index_col=0, parse_dates=True)
 
+    # 添加氢能需求（基于 REMIND 场景）
+    planning_horizons = snakemake.wildcards.planning_horizons
+    attach_H2_load(network, snakemake.input.ac_load_disagg, planning_horizons)
+
     # Passenger EVs
     if snakemake.config.get("transport", {}).get("passenger_bev", {}).get("on", True):
-        charging = pd.read_csv(snakemake.input.transport_demand_passenger, index_col=0, parse_dates=True)
-        driving = pd.read_csv(snakemake.input.driving_demand_passenger, index_col=0, parse_dates=True)
+        charging = pd.read_csv(
+            snakemake.input.transport_demand_passenger, index_col=0, parse_dates=True
+        )
+        driving = pd.read_csv(
+            snakemake.input.driving_demand_passenger, index_col=0, parse_dates=True
+        )
         avail = pd.read_csv(snakemake.input.avail_profile_passenger, index_col=0, parse_dates=True)
         opts = snakemake.config["transport"]["passenger_bev"]
         p_set = driving if opts["dsm"] else charging
@@ -147,7 +229,9 @@ if __name__ == "__main__":
 
     # Freight EVs
     if snakemake.config.get("transport", {}).get("freight_bev", {}).get("on", True):
-        charging = pd.read_csv(snakemake.input.transport_demand_freight, index_col=0, parse_dates=True)
+        charging = pd.read_csv(
+            snakemake.input.transport_demand_freight, index_col=0, parse_dates=True
+        )
         driving = pd.read_csv(snakemake.input.driving_demand_freight, index_col=0, parse_dates=True)
         avail = pd.read_csv(snakemake.input.avail_profile_freight, index_col=0, parse_dates=True)
         opts = snakemake.config["transport"]["freight_bev"]
