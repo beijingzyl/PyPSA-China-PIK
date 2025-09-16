@@ -8,7 +8,7 @@ import pandas as pd
 import os
 import pandas as pd
 
-def load_h2_conversion_efficiency(remind_output_dir: str, region: str = "CHA") -> float:
+def load_h2_conversion_efficiency(remind_output_dir: str, region: str = "CHA", year: int = None) -> float:
     """从 REMIND 输出文件加载 H2 转换效率 (elh2)"""
     eta_file = os.path.join(remind_output_dir, "pm_eta_conv.csv")
     if not os.path.exists(eta_file):
@@ -18,6 +18,17 @@ def load_h2_conversion_efficiency(remind_output_dir: str, region: str = "CHA") -
     h2_eta = eta_df.query("all_te == 'elh2' and all_regi == @region")
     if h2_eta.empty:
         raise ValueError(f"未找到区域 {region} 的 H2 转换效率 (elh2)")
+    
+    if year is not None:
+        # 如果有指定年份，尝试获取该年份的效率
+        if 'ttot' in h2_eta.columns:
+            year_eta = h2_eta.query("ttot == @year")
+            if not year_eta.empty:
+                return float(year_eta["value"].iloc[0])
+            else:
+                print(f"警告: 未找到年份 {year} 的 H2 转换效率，使用默认值")
+    
+    # 如果没有指定年份或找不到对应年份，使用第一个值
     return float(h2_eta["value"].iloc[0])
 
 
@@ -46,17 +57,27 @@ def merge_sectors_by_config(yearly_proj: pd.DataFrame, config: dict) -> pd.DataF
     print(f"实际可用部门: {available_sectors}, 值: {available_values}")
     
     if all(available_values):
+        # 所有部门都打开，只使用基础部门，其他部门独立运行
         sectors = mapping.get("base", [])
         print(f"所有可用部门都打开，只使用基础部门: {sectors}")
     elif not any(available_values):
-        sectors = sum(mapping.values(), [])
-        print(f"所有可用部门都关闭，使用所有部门: {sectors}")
-    else:
+        # 所有部门都关闭，合并所有关闭的部门到基础部门
         sectors = mapping.get("base", [])
         for k, active in sectors_cfg.items():
-            if active and k in mapping:
-                sectors += mapping.get(k, [])
-        print(f"部分部门打开，合并部门: {sectors}")
+            if not active and k in mapping:  # 合并所有关闭的部门
+                mapping_sectors = mapping.get(k, [])
+                # 只添加在数据中实际存在的部门
+                sectors += [s for s in mapping_sectors if s in data_sectors]
+        print(f"所有可用部门都关闭，合并所有关闭的部门: {sectors}")
+    else:
+        # 部分部门打开，只合并关闭的部门到基础部门
+        sectors = mapping.get("base", [])
+        for k, active in sectors_cfg.items():
+            if not active and k in mapping:  # 只合并关闭的部门
+                mapping_sectors = mapping.get(k, [])
+                # 只添加在数据中实际存在的部门
+                sectors += [s for s in mapping_sectors if s in data_sectors]
+        print(f"部分部门打开，只合并关闭的部门: {sectors}")
 
     merged = yearly_proj[yearly_proj["sector"].isin(sectors)].copy()
     if merged.empty:
@@ -68,13 +89,17 @@ def merge_sectors_by_config(yearly_proj: pd.DataFrame, config: dict) -> pd.DataF
         print(f"H2被关闭，需要转换H2需求为电力需求")
         remind_dir = config["paths"]["remind_outpt_dir"]
         region = config["run"]["remind"]["region"]
-        eta = load_h2_conversion_efficiency(remind_dir, region)
-        print(f"使用H2转换效率: {eta}")
         year_cols = [c for c in merged.columns if c.isdigit()]
+        
         for s in h2_sectors:
             if s in merged["sector"].values:
                 print(f"转换部门 {s} 的数据")
-                merged.loc[merged["sector"] == s, year_cols] /= eta
+                # 对每个年份分别获取对应的转换效率
+                for year_col in year_cols:
+                    year = int(year_col)
+                    eta = load_h2_conversion_efficiency(remind_dir, region, year)
+                    print(f"年份 {year} 的H2转换效率: {eta}")
+                    merged.loc[merged["sector"] == s, year_col] /= eta
     else:
         print(f"H2被打开，保持H2需求原样")
 

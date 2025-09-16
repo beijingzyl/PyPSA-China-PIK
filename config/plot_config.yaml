@@ -111,6 +111,9 @@ plotting:
     BEV_freight_charger: '#fb6a4a'
     BEV_passenger_discharger: '#ff7f7f'
     BEV_freight_discharger: '#ff9f9f'
+    # Alternative naming convention
+    EV_freight_charger: '#fb6a4a'
+    EV_passenger_charger: '#e41a1c'
     # Title case versions (after .title() transformation in plot_time_series.py)
     Bev_Passenger_Charger: '#e41a1c'
     Bev_Freight_Charger: '#fb6a4a'

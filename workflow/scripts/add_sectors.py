@@ -211,11 +211,16 @@ if __name__ == "__main__":
     dsm_profile = pd.read_csv(snakemake.input.dsm_profile, index_col=0, parse_dates=True)
 
     # 添加氢能需求（基于 REMIND 场景）
-    planning_horizons = snakemake.wildcards.planning_horizons
-    attach_H2_load(network, snakemake.input.ac_load_disagg, planning_horizons)
+    if snakemake.config.get("sectors", {}).get("add_H2", False):
+        planning_horizons = snakemake.wildcards.planning_horizons
+        attach_H2_load(network, snakemake.input.ac_load_disagg, planning_horizons)
+        logger.info("H2 部门已启用，添加氢能需求")
+    else:
+        logger.info("H2 部门已关闭，跳过氢能需求添加")
 
-    # Passenger EVs
-    if snakemake.config.get("transport", {}).get("passenger_bev", {}).get("on", True):
+    # Passenger EVs (only if electric_vehicles sector is enabled AND passenger_bev is on)
+    if (snakemake.config.get("sectors", {}).get("electric_vehicles", False) and 
+        snakemake.config.get("transport", {}).get("passenger_bev", {}).get("on", True)):
         charging = pd.read_csv(
             snakemake.input.transport_demand_passenger, index_col=0, parse_dates=True
         )
@@ -227,8 +232,9 @@ if __name__ == "__main__":
         p_set = driving if opts["dsm"] else charging
         attach_EV_components(network, avail, dsm_profile, p_set, nodes, opts, "passenger")
 
-    # Freight EVs
-    if snakemake.config.get("transport", {}).get("freight_bev", {}).get("on", True):
+    # Freight EVs (only if electric_vehicles sector is enabled AND freight_bev is on)
+    if (snakemake.config.get("sectors", {}).get("electric_vehicles", False) and 
+        snakemake.config.get("transport", {}).get("freight_bev", {}).get("on", True)):
         charging = pd.read_csv(
             snakemake.input.transport_demand_freight, index_col=0, parse_dates=True
         )
