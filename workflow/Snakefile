@@ -219,6 +219,7 @@ rule build_renewable_profiles:
         profile=DERIVED_CUTOUT+"/"+"profile_{technology}-{rc_params}.nc",
         class_regions=DERIVED_CUTOUT+"/"+"{technology}_regions_by_class_{rc_params}.geojson",
         average_distance=DERIVED_CUTOUT+"/"+"average_distance_{technology}-{rc_params}.h5",
+        grid_capacity_factor=DERIVED_CUTOUT+"/"+"grid_capacity_factor_{technology}-{rc_params}.nc",
     log:
         LOGS_COMMON +f"/cutout_{CUTOUT_NAME}/" +"build_renewable_profile_{technology}-{rc_params}.log",
     threads: config["atlite"].get("nprocesses", 4)
@@ -329,6 +330,8 @@ if config["foresight"] in ["overnight"]:
     add_sectors = "-sector" if config.get("sectors", {}).get("electric_vehicles", False) else ""
 
     rule prepare_networks:
+        params:
+            selected_provinces = config.get("selected_provinces", None),
         input:
             heat_demand_profile=DERIVED_DATA + f"/heating-cutout_{CUTOUT_NAME}/"+"heat_demand_profile_{planning_horizons}.h5",
             central_fraction="resources/data/heating/DH_city_town_2020.h5",
@@ -349,6 +352,8 @@ if config["foresight"] in ["overnight"]:
     # Only create sector network rule if electric vehicles are enabled
     if config.get("sectors", {}).get("electric_vehicles", False):
         rule add_sectors:
+            params:
+                selected_provinces = config.get("selected_provinces", None),
             input:
                 network=RESULTS_DIR+ '/prenetworks/ntwk_{planning_horizons}.nc',
                 transport_demand_passenger=DERIVED_DATA + "/transport/charging_demand_passenger_{planning_horizons}.csv",

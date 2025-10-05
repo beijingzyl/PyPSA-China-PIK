@@ -250,6 +250,11 @@ if __name__ == "__main__":
     logger.info(f"Calculate average capacity factor per grid cell for technology {technology}...")
     start = time.time()
 
+    # 保存格点级容量因子数据
+    logger.info(f"Saving grid-level capacity factor for technology {technology}...")
+    capacity_factor.to_netcdf(snakemake.output.grid_capacity_factor)
+    logger.info(f"Grid-level capacity factor saved to {snakemake.output.grid_capacity_factor}")
+
     duration = time.time() - start
     logger.info(
         "Completed average capacity factor calculation per grid cell for technology"

@@ -344,12 +344,14 @@ plotting:
     electricity distribution grid: '#97ad8c'
     low voltage: '#97ad8c'
     # electricity demand
-    electric load: '#110d63'
-    electric demand: '#110d63'
-    electricity: '#110d63'
+    electric load: 'black'
+    electric demand: 'black'
+    electricity: 'black'
     industry electricity: '#2d2a66'
     industry new electricity: '#2d2a66'
     agriculture electricity: '#494778'
+    EV_passenger_load: '#e41a1c'
+    EV_freight_load: '#e41a1c'
     load shedding: "#dd2e23"
     Load shedding: "#dd2e23"
     Load Shedding: "#dd2e23"
@@ -459,17 +461,14 @@ plotting:
   - electric load
   - heat load
   - Load
-  - BEV_passenger_charger
-  - BEV_freight_charger
-  - BEV_passenger_discharger
-  - BEV_freight_discharger
-  - Bev_Passenger_Charger
-  - Bev_Freight_Charger
-  - Bev_Passenger_Discharger
+  - EV_passenger_charger
+  - EV_freight_charger
+  - EV_passenger_discharger
+  - EV_freight_discharger
+  - EV_passenger_discharger
+  - EV_freight_discharger
+  - EV_passenger_discharger
   - Bev_Freight_Discharger
-  - Transmission Lines
-  - transmission lines
-  - transmission losses
   - hydroelectricity
   - Hydroelectricity
   - nuclear
@@ -534,3 +533,6 @@ plotting:
   - H2
   - H2 pipeline
   - Other
+  - Transmission Lines
+  - transmission lines
+  - transmission losses

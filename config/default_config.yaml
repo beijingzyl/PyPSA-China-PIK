@@ -4,7 +4,7 @@
 # DO NOT FORGET TO LOOK AT THE TECHNOLOGY CONFIGURATION FILES
 
 run:
-  name: "unamed_run"
+  name: "0919_pro_2"
   is_remind_coupled: false  # Set to true when using REMIND data
 foresight: "overnight"
 
@@ -57,9 +57,9 @@ snapshots:
   start: "01-01 00:00"
   end: "12-31 23:00"
   bounds: 'both'
-  freq: '5h' # down to 1h
+  freq: '1h' # down to 1h
   # for weighings -> to be improved
-  frequency: 5.
+  frequency: 1.
   # in case snapshots cross the planning horizon year
   end_year_plus1: false
 
@@ -301,18 +301,10 @@ lines:
 security:
   line_margin: 70 # max percent of line capacity
 
-# brownfield options
-existing_capacities:
-  add: false # whether to add brownfield capacities
-  grouping_years: [1985, 1990, 1995, 2000, 2005, 2010, 2015, 2020, 2025, 2030, 2035, 2040, 2045, 2050, 2055, 2060]
-  collapse_years: False # Treat as a single unit when preparing & solving network
-  threshold_capacity: 1 # TODO UNIT
-  techs: ['coal','CHP coal', 'CHP gas', 'OCGT', 'CCGT', 'solar', 'onwind', 'offwind', 'nuclear', "PHS"]
-  node_assignment: simple # simple | gps
 
 # brownfield options
 existing_capacities:
-  add: True # whether to add brownfield capacities
+  add: false # whether to add brownfield capacities
   grouping_years: [1985, 1990, 1995, 2000, 2005, 2010, 2015, 2020, 2025, 2030, 2035, 2040, 2045, 2050, 2055, 2060]
   collapse_years: False # Treat as a single unit when preparing & solving network
   threshold_capacity: 1 # TODO UNIT
@@ -360,6 +352,18 @@ fetch_regions:
     eez: 0.5
     land: 0.05
 
+## sector coupling configuration
+sectors:
+  heat_coupling: false
+  electric_vehicles: false  # Master switch for transport sector coupling
+  add_H2: false
+
+sector_mapping:
+  base: ["ac"]
+  electric_vehicles: ["ev_freight", "ev_pass"]
+  add_H2: ["h2_demand"]
+  heat_coupling: ["heat_el"]
+
 # Transport sector configuration (only active when sectors.electric_vehicles: true)
 transport:
   passenger_bev:
@@ -395,3 +399,6 @@ DSM_config:
   reset_hour: 7  # daily reset time / DSM restriction time (0-23)
   reset_daily: true  # whether to reset battery state daily
   restriction_value: 0.8  # DSM restriction value
+
+
+selected_provinces: ["Shandong"]  # 3省份测试
