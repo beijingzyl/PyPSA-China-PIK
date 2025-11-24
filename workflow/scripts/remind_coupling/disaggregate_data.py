@@ -213,7 +213,7 @@ if __name__ == "__main__":
             "disaggregate_remind_data",
             co2_pathway="SSP2-PkBudg1000-CHA-pypsaelh2_higheradj_085",
             topology="current+FCG",
-            config_files="resources/tmp/remind_coupled_cg.yaml",
+            configfiles="resources/tmp/remind_coupled_cg.yaml",
             heating_demand="positive",
         )
     configure_logging(snakemake)
@@ -226,8 +226,10 @@ if __name__ == "__main__":
     if not config:
         raise ValueError("Aborting: No REMIND data ETL config provided")
 
-    # ================ Load data ===============
-    input_files = {k: v for k, v in snakemake.input.items() if not os.path.isdir(v)}
+    # ================ Load data ===============snak
+    input_files = dict(snakemake.input.items())
+    # snakemake allows to ignore input if empty list. Remove them
+    input_files = {k: v for k, v in input_files.items() if (not isinstance(v, list) and not os.path.isdir(v))}
     readers = {"reference_load": read_yearly_load_projections, "default": pd.read_csv}
 
     # read files (and not directories)
@@ -294,7 +296,15 @@ if __name__ == "__main__":
     logger.info(f"Output files: {outp_files}")
     if "disagg_load" in results:
         logger.info(f"Exporting disaggregated load to {outp_files['disagg_load']}")
-        results["disagg_load"].to_csv(outp_files["disagg_load"], index=False)
+        disagg = results["disagg_load"]
+        if isinstance(disagg, pd.Series):
+            disagg = disagg.to_frame(name="value")
+        if "province" not in disagg.columns and "region" not in disagg.columns:
+            disagg = disagg.reset_index()
+            first_col = disagg.columns[0]
+            if first_col != "province":
+                disagg = disagg.rename(columns={first_col: "province"})
+        disagg.to_csv(outp_files["disagg_load"], index=False)
     if "harmonize_model_caps" in results:
         logger.info("Exporting harmonized model capacities")
         results["harmonize_model_caps"].to_csv(outp_files["capacities"], index=False)

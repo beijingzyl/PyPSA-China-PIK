@@ -7,6 +7,7 @@ REMIND_REGION = config["run"].get("remind", {}).get("region")
 EV_ENABLED = config.get("sectors", {}).get("electric_vehicles", {}).get("enabled", False)
 
 
+
 # Only extrapolate EV provincial disaggregation shares if sector coupling is enabled
 if EV_ENABLED:
     rule extrapolate_regional_shares:
@@ -68,7 +69,7 @@ rule transform_remind_data:
         use_gdx=False,
     input:
         pypsa_costs=path_manager.costs_dir(ignore_remind=True),
-        remind_output_dir=config["paths"].get("remind_outpt_dir", "dummy"),
+        remind_output_dir=config["paths"].get("remind_outpt_dir", []),
     output:
         **{
             f"costs_{yr}": DERIVED_DATA + f"/remind/costs/costs_{yr}.csv"
