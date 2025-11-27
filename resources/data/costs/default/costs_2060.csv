@@ -585,7 +585,7 @@ seawater desalination,2060,investment,21025.64,EUR/(m^3-H2O/h),"Caldera et al 20
 seawater desalination,2060,lifetime,30.0,years,"Caldera et al 2016: Local cost of seawater RO desalination based on solar PV and windenergy: A global estimate. (https://doi.org/10.1016/j.desal.2016.02.004), Table 1.",
 solar,2060,FOM,2.07,%/year,"Danish Energy Agency, technology_data_for_el_and_dh.xlsx",22 Rooftop PV residential:  Fixed O&M [2020-EUR/MW_e/y]
 solar,2060,VOM,0.01,EUR/MWhel,RES costs made up to fix curtailment order, from old pypsa cost assumptions
-solar,2060,investment,244.0,EUR/kW_e,"Danish Energy Agency, technology_data_for_el_and_dh.xlsx",22 Rooftop PV residential:  Nominal investment [2020-MEUR/MW_e]
+solar,2060,investment,370.19,EUR/kW_e,"Danish Energy Agency, technology_data_for_el_and_dh.xlsx",22 Rooftop PV residential:  Nominal investment [2020-MEUR/MW_e]
 solar,2060,lifetime,40.0,years,"Danish Energy Agency, technology_data_for_el_and_dh.xlsx",22 Rooftop PV residential:  Technical lifetime [years]
 solar-rooftop,2060,FOM,1.61,%/year,"Danish Energy Agency, technology_data_for_el_and_dh.xlsx",22 Rooftop PV residential:  Fixed O&M [2020-EUR/MW_e/y]
 solar-rooftop,2060,discount rate,0.04,per unit,standard for decentral, from old pypsa cost assumptions
@@ -635,11 +635,11 @@ waste CHP CC,2060,investment,7068.89,EUR/kW_e,"Danish Energy Agency, technology_
 waste CHP CC,2060,lifetime,25.0,years,"Danish Energy Agency, technology_data_for_el_and_dh.xlsx","08 WtE CHP, Large, 50 degree:  Technical lifetime"
 water tank charger,2060,efficiency,0.84,per unit,"Danish Energy Agency, technology_data_catalogue_for_energy_storage.xlsx",:  efficiency from sqr(Round trip efficiency)
 water tank discharger,2060,efficiency,0.84,per unit,"Danish Energy Agency, technology_data_catalogue_for_energy_storage.xlsx",:  efficiency from sqr(Round trip efficiency)
-solar,2020,investment,329.4,EUR/kW,Literature interpolated,
-solar,2025,investment,329.4,EUR/kW,Literature interpolated,
-solar,2030,investment,329.4,EUR/kW,Literature interpolated,
-solar,2035,investment,311.1,EUR/kW,Literature interpolated,
-solar,2040,investment,292.8,EUR/kW,Literature interpolated,
-solar,2045,investment,280.6,EUR/kW,Literature interpolated,
-solar,2050,investment,268.4,EUR/kW,Literature interpolated,
-solar,2055,investment,256.2,EUR/kW,Literature interpolated,
+solar,2020,investment,733.47,EUR/kW,Literature interpolated,
+solar,2025,investment,612.79,EUR/kW,Literature interpolated,
+solar,2030,investment,492.11,EUR/kW,Literature interpolated,
+solar,2035,investment,449.99,EUR/kW,Literature interpolated,
+solar,2040,investment,407.87,EUR/kW,Literature interpolated,
+solar,2045,investment,389.03,EUR/kW,Literature interpolated,
+solar,2050,investment,370.19,EUR/kW,Literature interpolated,
+solar,2055,investment,370.19,EUR/kW,Literature interpolated,
