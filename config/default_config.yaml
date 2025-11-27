@@ -4,7 +4,7 @@
 # DO NOT FORGET TO LOOK AT THE TECHNOLOGY CONFIGURATION FILES
 
 run:
-  name: "unnamed_run"
+  name: "1127_cost update_land_uncoupled_change_reserves"
 foresight: "overnight"
 
 paths:
@@ -371,12 +371,12 @@ fetch_regions:
     eez: 0.5
     land: 0.05
 
-subsidies:
-  # New format: subsidies.fuel_type -> province -> value (EUR/MWh) only allowed for negative values (subsidies)
-  gas:
-    Guangdong: -8
-    Jiangsu:  -8.5
-    Zhejiang: -9
-    Beijing: -10  
-    Tianjin: -10
-    Shanghai: -10
+# subsidies:
+#   # New format: subsidies.fuel_type -> province -> value (EUR/MWh) only allowed for negative values (subsidies)
+#   gas:
+#     Guangdong: -8
+#     Jiangsu:  -8.5
+#     Zhejiang: -9
+#     Beijing: -10  
+#     Tianjin: -10
+#     Shanghai: -10
