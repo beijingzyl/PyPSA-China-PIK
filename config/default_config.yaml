@@ -4,7 +4,7 @@
 # DO NOT FORGET TO LOOK AT THE TECHNOLOGY CONFIGURATION FILES
 
 run:
-  name: "1127_cost update_land_uncoupled_change_reserves"
+  name: "1127_cost update_land_uncoupled_change_reserves_lowsolar"
 foresight: "overnight"
 
 paths:
