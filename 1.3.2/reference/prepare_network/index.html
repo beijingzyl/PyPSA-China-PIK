@@ -6659,7 +6659,10 @@ at 1 node per region/province</p>
 <span class="normal"><a href="#__codelineno-0-1703">1703</a></span>
 <span class="normal"><a href="#__codelineno-0-1704">1704</a></span>
 <span class="normal"><a href="#__codelineno-0-1705">1705</a></span>
-<span class="normal"><a href="#__codelineno-0-1706">1706</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1491" name="__codelineno-0-1491"></a><span class="k">def</span><span class="w"> </span><span class="nf">prepare_network</span><span class="p">(</span>
+<span class="normal"><a href="#__codelineno-0-1706">1706</a></span>
+<span class="normal"><a href="#__codelineno-0-1707">1707</a></span>
+<span class="normal"><a href="#__codelineno-0-1708">1708</a></span>
+<span class="normal"><a href="#__codelineno-0-1709">1709</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1491" name="__codelineno-0-1491"></a><span class="k">def</span><span class="w"> </span><span class="nf">prepare_network</span><span class="p">(</span>
 <a id="__codelineno-0-1492" name="__codelineno-0-1492"></a>    <span class="n">config</span><span class="p">:</span> <span class="nb">dict</span><span class="p">,</span>
 <a id="__codelineno-0-1493" name="__codelineno-0-1493"></a>    <span class="n">costs</span><span class="p">:</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">,</span>
 <a id="__codelineno-0-1494" name="__codelineno-0-1494"></a>    <span class="n">snapshots</span><span class="p">:</span> <span class="n">pd</span><span class="o">.</span><span class="n">date_range</span><span class="p">,</span>
@@ -6871,10 +6874,13 @@ at 1 node per region/province</p>
 <a id="__codelineno-0-1700" name="__codelineno-0-1700"></a>
 <a id="__codelineno-0-1701" name="__codelineno-0-1701"></a>    <span class="c1"># Apply fuel subsidies as post-processing step</span>
 <a id="__codelineno-0-1702" name="__codelineno-0-1702"></a>    <span class="n">subsidy_config</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;subsidies&quot;</span><span class="p">,</span> <span class="p">{})</span>
-<a id="__codelineno-0-1703" name="__codelineno-0-1703"></a>    <span class="k">if</span> <span class="n">subsidy_config</span><span class="p">:</span>
-<a id="__codelineno-0-1704" name="__codelineno-0-1704"></a>        <span class="n">add_fuel_subsidies</span><span class="p">(</span><span class="n">network</span><span class="p">,</span> <span class="n">subsidy_config</span><span class="p">)</span>
-<a id="__codelineno-0-1705" name="__codelineno-0-1705"></a>
-<a id="__codelineno-0-1706" name="__codelineno-0-1706"></a>    <span class="k">return</span> <span class="n">network</span>
+<a id="__codelineno-0-1703" name="__codelineno-0-1703"></a>    <span class="k">if</span> <span class="n">subsidy_config</span> <span class="ow">and</span> <span class="n">subsidy_config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;enabled&quot;</span><span class="p">,</span> <span class="kc">True</span><span class="p">):</span>
+<a id="__codelineno-0-1704" name="__codelineno-0-1704"></a>        <span class="c1"># Remove &#39;enabled&#39; key before passing to add_fuel_subsidies</span>
+<a id="__codelineno-0-1705" name="__codelineno-0-1705"></a>        <span class="n">subsidy_config_clean</span> <span class="o">=</span> <span class="p">{</span><span class="n">k</span><span class="p">:</span> <span class="n">v</span> <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">subsidy_config</span><span class="o">.</span><span class="n">items</span><span class="p">()</span> <span class="k">if</span> <span class="n">k</span> <span class="o">!=</span> <span class="s2">&quot;enabled&quot;</span><span class="p">}</span>
+<a id="__codelineno-0-1706" name="__codelineno-0-1706"></a>        <span class="k">if</span> <span class="n">subsidy_config_clean</span><span class="p">:</span>
+<a id="__codelineno-0-1707" name="__codelineno-0-1707"></a>            <span class="n">add_fuel_subsidies</span><span class="p">(</span><span class="n">network</span><span class="p">,</span> <span class="n">subsidy_config_clean</span><span class="p">)</span>
+<a id="__codelineno-0-1708" name="__codelineno-0-1708"></a>
+<a id="__codelineno-0-1709" name="__codelineno-0-1709"></a>    <span class="k">return</span> <span class="n">network</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
